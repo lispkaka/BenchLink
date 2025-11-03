@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>执行套件预览 - 优化版</title>
+  <script src="https://cdn.jsdelivr.net/npm/vue@2/dist/vue.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/element-ui@2.15.14/lib/index.js"></script>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/element-ui@2.15.14/lib/theme-chalk/index.css">
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif; margin: 0; background: #f5f7fa; }
+    .container { max-width: 1200px; margin: 20px auto; padding: 0 20px; }
+    .header { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.05); margin-bottom: 20px; display: flex; justify-content: space-between; flex-wrap: wrap; }
+    .stat { text-align: center; flex: 1; min-width: 100px; }
+    .stat-num { font-size: 24px; font-weight: bold; }
+    .success { color: #67c23a; }
+    .fail { color: #f56c6c; }
+    .card { background: white; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.05); margin-bottom: 16px; overflow: hidden; }
+    .card-header { padding: 16px 20px; border-bottom: 1px solid #ebeef5; display: flex; justify-content: space-between; align-items: center; }
+    .card-title { font-weight: 600; font-size: 16px; }
+    .tag { padding: 2px 8px; border-radius: 4px; font-size: 12px; }
+    .tag-success { background: #f0f9eb; color: #67c23a; }
+    .tag-fail { background: #fef0f0; color: #f56c6c; }
+    .duration-bar { height: 4px; background: #ebeef5; border-radius: 2px; overflow: hidden; margin-top: 8px; }
+    .duration-fill { height: 100%; transition: width 0.3s; }
+    .duration-fill.fast { background: #67c23a; }
+    .duration-fill.medium { background: #e6a23c; }
+    .duration-fill.slow { background: #f56c6c; }
+    .json-viewer { font-family: Consolas, Monaco, monospace; font-size: 13px; background: #fafafa; padding: 12px; border-radius: 4px; max-height: 300px; overflow: auto; }
+    .copy-btn { float: right; font-size: 12px; }
+    .filter-bar { padding: 12px 20px; background: #f9f9f9; border-bottom: 1px solid #ebeef5; display: flex; gap: 12px; flex-wrap: wrap; }
+    .sub-case { padding: 12px 20px; border-bottom: 1px solid #f5f5f5; }
+    .sub-case:last-child { border-bottom: none; }
+    .assert-summary { margin-top: 8px; font-size: 13px; }
+    .assert-pass { color: #67c23a; }
+    .assert-fail { color: #f56c6c; }
+    @media (max-width: 768px) {
+      .header { flex-direction: column; gap: 12px; }
+      .stat { flex: none; }
+    }
+  </style>
+</head>
+<body>
+  <div id="app" class="container">
+    <!-- 顶部统计 -->
+    <div class="header">
+      <div class="stat">
+        <div class="stat-num">2</div>
+        <div>总用例</div>
+      </div>
+      <div class="stat">
+        <div class="stat-num success">2</div>
+        <div>通过</div>
+      </div>
+      <div class="stat">
+        <div class="stat-num fail">0</div>
+        <div>失败</div>
+      </div>
+      <div class="stat">
+        <div class="stat-num success">100%</div>
+        <div>通过率</div>
+      </div>
+      <div class="stat">
+        <div class="stat-num">1.63s</div>
+        <div>总耗时</div>
+      </div>
+    </div>
+
+    <!-- 主执行记录 -->
+    <div class="card">
+      <div class="card-header">
+        <div>
+          <div class="card-title">Login套件 - 2025-10-31 19:21:45</div>
+          <div style="font-size:13px;color:#999;margin-top:4px;">
+            执行人: admin | 时长: 1.63164s | 结束于 19:21:46
+          </div>
+        </div>
+        <div>
+          <el-tag type="success" size="small" class="tag tag-success">通过</el-tag>
+          <el-button size="mini" @click="retry">重试</el-button>
+        </div>
+      </div>
+
+      <!-- 子用例面板 -->
+      <el-collapse v-model="activeNames">
+        <el-collapse-item title="子用例执行详情 (2)" name="1">
+          <div class="filter-bar">
+            <el-input placeholder="搜索接口名" size="small" style="width:200px;" v-model="search"></el-input>
+            <el-select size="small" v-model="filterStatus" placeholder="状态筛选">
+              <el-option label="全部" value=""></el-option>
+              <el-option label="通过" value="pass"></el-option>
+              <el-option label="失败" value="fail"></el-option>
+            </el-select>
+          </div>
+
+          <!-- 子用例列表 -->
+          <div v-for="item in filteredCases" :key="item.name" class="sub-case">
+            <div style="display:flex;justify-content:space-between;align-items:center;">
+              <div>
+                <strong>{{ item.name }}</strong>
+                <span :class="item.status === 'pass' ? 'success' : 'fail'" style="margin-left:8px;font-size:13px;">
+                  [{{ item.status === 'pass' ? '通过' : '失败' }}]
+                </span>
+                <span style="color:#999;font-size:13px;margin-left:8px;">
+                  {{ item.duration }}s | HTTP {{ item.code }}
+                </span>
+              </div>
+              <el-button size="mini" type="text" @click="item.show = !item.show">
+                {{ item.show ? '收起' : '查看详情' }}
+              </el-button>
+            </div>
+
+            <!-- 耗时条 -->
+            <div class="duration-bar">
+              <div :class="['duration-fill', item.durationClass]" :style="{width: item.barWidth + '%'}"></div>
+            </div>
+
+            <!-- 展开详情 -->
+            <div v-if="item.show" style="margin-top:12px;padding:12px;background:#fafafa;border-radius:4px;">
+              <div class="assert-summary">
+                断言：
+                <span class="assert-pass">{{ item.assert.pass }} 条通过</span>
+                <span v-if="item.assert.fail > 0" class="assert-fail"> / {{ item.assert.fail }} 条失败</span>
+              </div>
+              <div style="margin-top:8px;">
+                <strong>响应体：</strong>
+                <button class="copy-btn" @click="copyJson(item.response)">复制</button>
+                <div class="json-viewer">{{ item.response }}</div>
+              </div>
+            </div>
+          </div>
+        </el-collapse-item>
+      </el-collapse>
+    </div>
+  </div>
+
+  <script>
+    new Vue({
+      el: '#app',
+      data: {
+        activeNames: ['1'],
+        search: '',
+        filterStatus: '',
+        cases: [
+          {
+            name: '访问百度测试',
+            status: 'pass',
+            duration: 0.306307,
+            code: 200,
+            show: false,
+            assert: { pass: 3, fail: 0 },
+            response: '{\n  "msg": "success",\n  "code": 0,\n  "data": { "title": "百度一下" }\n}'
+          },
+          {
+            name: '登录',
+            status: 'pass',
+            duration: 1.312486,
+            code: 200,
+            show: true, // 失败用例自动展开
+            assert: { pass: 5, fail: 0 },
+            response: JSON.stringify({
+              msg: "null",
+              code: "0",
+              data: "dcloud-clienteyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ4ZGNsaWVudCIsInVzZXJJZCI6IjEiLCJleHAiOjE3MzAzNjQ4MDAsImlhdCI6MTczMDM2MTIwMH0.xxxxx"
+            }, null, 2)
+          }
+        ]
+      },
+      computed: {
+        filteredCases() {
+          return this.cases
+            .map(item => {
+              const duration = item.duration;
+              let durationClass = 'fast';
+              let barWidth = Math.min(duration * 100, 100);
+              if (duration > 2) durationClass = 'slow';
+              else if (duration > 0.5) durationClass = 'medium';
+              return { ...item, durationClass, barWidth: barWidth };
+            })
+            .filter(item => {
+              const matchSearch = item.name.includes(this.search);
+              const matchStatus = !this.filterStatus || (this.filterStatus === 'pass' ? item.status === 'pass' : item.status === 'fail');
+              return matchSearch && matchStatus;
+            });
+        }
+      },
+      methods: {
+        retry() { this.$message.success('重试已触发'); },
+        copyJson(text) {
+          navigator.clipboard.writeText(text).then(() => {
+            this.$message.success('响应体已复制');
+          });
+        }
+      }
+    });
+  </script>
+</body>
+</html>
