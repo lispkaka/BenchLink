@@ -39,7 +39,7 @@
       </template>
 
       <el-table
-        :data="filteredEnvironments"
+        :data="environments"
         stripe
         style="width: 100%"
         v-loading="loading"

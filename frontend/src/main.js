@@ -4,20 +4,43 @@ import ElementPlus from 'element-plus'
 import 'element-plus/dist/index.css'
 import * as ElementPlusIconsVue from '@element-plus/icons-vue'
 import zhCn from 'element-plus/dist/locale/zh-cn.mjs'
+import en from 'element-plus/dist/locale/en.mjs'
 import App from './App.vue'
 import router from './router'
+import { useThemeStore } from './store/theme'
 
 const app = createApp(App)
 const pinia = createPinia()
+
+app.use(pinia)
+
+// 初始化主题store
+const themeStore = useThemeStore()
+themeStore.init()
+
+// 获取当前语言配置
+const getLocale = () => {
+  return themeStore.language === 'en-US' ? en : zhCn
+}
 
 // 注册所有图标
 for (const [key, component] of Object.entries(ElementPlusIconsVue)) {
   app.component(key, component)
 }
 
-app.use(pinia)
 app.use(router)
-app.use(ElementPlus, { locale: zhCn })
+
+// 配置 Element Plus 的国际化
+const currentLocale = getLocale()
+app.use(ElementPlus, { locale: currentLocale })
+
+// 监听语言变化，重新配置Element Plus
+window.addEventListener('language-changed', (event) => {
+  const newLocale = event.detail === 'en-US' ? en : zhCn
+  // 更新全局配置
+  app.config.globalProperties.$ELEMENT = { locale: newLocale }
+  console.log('语言已切换为:', event.detail)
+})
 
 // 添加全局错误处理
 app.config.errorHandler = (err, instance, info) => {

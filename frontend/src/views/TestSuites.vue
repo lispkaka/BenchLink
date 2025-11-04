@@ -55,12 +55,12 @@
       <template #header>
         <div class="card-header">
           <span class="card-title">测试套件列表</span>
-          <span class="card-subtitle">共 {{ filteredTestSuites.length }} 个</span>
+          <span class="card-subtitle">共 {{ total }} 个</span>
         </div>
       </template>
 
       <el-table
-        :data="filteredTestSuites"
+        :data="testSuites"
         stripe
         style="width: 100%"
         v-loading="loading"

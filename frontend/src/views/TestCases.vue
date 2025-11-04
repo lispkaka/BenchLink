@@ -61,12 +61,12 @@
       <template #header>
         <div class="card-header">
           <span class="card-title">测试用例列表</span>
-          <span class="card-subtitle">共 {{ filteredTestCases.length }} 条</span>
+          <span class="card-subtitle">共 {{ total }} 条</span>
         </div>
       </template>
 
       <el-table
-        :data="filteredTestCases"
+        :data="testCases"
         stripe
         style="width: 100%"
         v-loading="loading"
@@ -179,6 +179,7 @@
                 v-model="form.project"
                 placeholder="请选择项目"
                 style="width: 100%"
+                @change="handleProjectChange"
               >
                 <el-option
                   v-for="project in projects"
@@ -191,16 +192,22 @@
             <el-form-item label="关联接口" prop="api">
               <el-select
                 v-model="form.api"
-                placeholder="请选择接口"
+                placeholder="请先选择项目，再选择接口"
                 style="width: 100%"
                 filterable
+                :disabled="!form.project"
               >
                 <el-option
-                  v-for="api in apis"
-                  :key="api.id"
-                  :label="`${api.method} ${api.name}`"
-                  :value="api.id"
-                />
+                  v-for="apiItem in apis"
+                  :key="apiItem.id"
+                  :label="`[${apiItem.method}] ${apiItem.name}`"
+                  :value="apiItem.id"
+                >
+                  <div style="display: flex; justify-content: space-between;">
+                    <span><el-tag size="small" :type="getMethodTagType(apiItem.method)">{{ apiItem.method }}</el-tag> {{ apiItem.name }}</span>
+                    <span style="color: #8492a6; font-size: 12px;">{{ apiItem.url }}</span>
+                  </div>
+                </el-option>
               </el-select>
             </el-form-item>
             <el-form-item label="测试环境" prop="environment">
@@ -652,12 +659,30 @@ const loadProjects = async () => {
   }
 }
 
-const loadApis = async () => {
+const loadApis = async (projectId = null) => {
   try {
-    const response = await api.get('/apis/apis/')
-    apis.value = Array.isArray(response) ? response : response.results || []
+    const params = {
+      page_size: 10000  // 设置足够大的page_size以获取所有接口
+    }
+    
+    // 加载所有接口（不限制项目），让用户可以选择任何接口
+    // 这样可以处理接口未设置项目的情况
+    const response = await api.get('/apis/apis/', { params })
+    const allApis = Array.isArray(response) ? response : response.results || []
+    
+    // 如果选择了项目，优先显示该项目的接口，其他接口放在后面
+    if (projectId) {
+      const projectApis = allApis.filter(api => api.project?.id === projectId || api.project === projectId)
+      const otherApis = allApis.filter(api => api.project?.id !== projectId && api.project !== projectId)
+      apis.value = [...projectApis, ...otherApis]
+      console.log(`已加载接口：项目接口 ${projectApis.length} 个，其他接口 ${otherApis.length} 个，合计 ${allApis.length} 个`)
+    } else {
+      apis.value = allApis
+      console.log(`已加载所有接口：${apis.value.length} 个`)
+    }
   } catch (error) {
     console.error('加载接口列表失败:', error)
+    apis.value = []
   }
 }
 
@@ -693,6 +718,18 @@ const calculateStats = async () => {
       passRate,
       avgDuration: '-'
     }
+  }
+}
+
+// 项目改变时，重新加载该项目的接口
+const handleProjectChange = (projectId) => {
+  // 清空已选择的接口
+  form.value.api = null
+  // 加载该项目的接口
+  if (projectId) {
+    loadApis(projectId)
+  } else {
+    apis.value = []
   }
 }
 
@@ -745,14 +782,20 @@ const handleEdit = (row) => {
     url_override: row.url_override || '',
     headers_override: row.headers_override || {},
     body_override: row.body_override || {},
-    params_override: row.params_override || {}
+    params_override: row.params_override || {},
+    parameterized_mode: row.parameterized_mode || 'disabled',
+    parameterized_data: row.parameterized_data || []
   }
+  
+  // 加载该项目的接口列表
+  if (form.value.project) {
+    loadApis(form.value.project)
+  }
+  
   headersOverrideText.value = JSON.stringify(form.value.headers_override || {}, null, 2)
   paramsOverrideText.value = JSON.stringify(form.value.params_override || {}, null, 2)
   bodyOverrideText.value = JSON.stringify(form.value.body_override || {}, null, 2)
   parameterizedDataText.value = JSON.stringify(row.parameterized_data || [], null, 2)
-  form.value.parameterized_mode = row.parameterized_mode || 'disabled'
-  form.value.parameterized_data = row.parameterized_data || []
   manualAssertions.value = manual.length > 0 ? manual : []
   activeTab.value = 'basic'
   dialogVisible.value = true

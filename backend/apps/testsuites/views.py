@@ -27,8 +27,8 @@ class TestSuiteViewSet(viewsets.ModelViewSet):
         """执行测试套件（批量执行测试用例）"""
         testsuite = self.get_object()
         
-        # 获取套件中的所有测试用例
-        testcases = testsuite.testcases.filter(is_active=True)
+        # 获取套件中的所有测试用例（按order字段排序）
+        testcases = testsuite.get_ordered_testcases()
         
         if not testcases.exists():
             return Response({

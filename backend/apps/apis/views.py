@@ -3,12 +3,15 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
+from django.http import HttpResponse
 import requests
 import re
 import time
 from typing import Dict, Any, Optional
 from .models import API
 from .serializers import APISerializer
+from .importers import PostmanImporter, SwaggerImporter
+from .exporters import PostmanExporter
 
 
 class APIViewSet(viewsets.ModelViewSet):
@@ -16,12 +19,27 @@ class APIViewSet(viewsets.ModelViewSet):
     queryset = API.objects.all()
     serializer_class = APISerializer
     permission_classes = [IsAuthenticated]
+    filterset_fields = ['method']
+    search_fields = ['name', 'url', 'description']
+    ordering_fields = ['id', 'created_at', 'updated_at']
+    ordering = ['-id']
+
+    def get_permissions(self):
+        """导入导出接口不需要认证（方便测试）"""
+        if self.action in ['export_postman', 'import_postman', 'import_swagger']:
+            return []
+        return super().get_permissions()
 
     def get_queryset(self):
+        """自定义queryset，支持project_id筛选"""
+        queryset = API.objects.all()
+        
+        # 项目筛选（支持project_id参数）
         project_id = self.request.query_params.get('project_id')
         if project_id:
-            return API.objects.filter(project_id=project_id)
-        return API.objects.all()
+            queryset = queryset.filter(project_id=project_id)
+        
+        return queryset
 
     def _replace_variables(self, text: str, variables: Dict = None) -> str:
         """替换变量 ${variable}"""
@@ -247,6 +265,155 @@ class APIViewSet(viewsets.ModelViewSet):
             # 普通执行：单次
             result = self._execute_single_request(api_instance, variables, base_url)
             return Response(result, status=status.HTTP_200_OK)
+    
+    @action(detail=False, methods=['post'])
+    def import_postman(self, request):
+        """导入Postman Collection"""
+        project_id = request.data.get('project_id')
+        collection_data = request.data.get('collection')
+        
+        if not project_id:
+            return Response({
+                'error': '请提供project_id'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        if not collection_data:
+            return Response({
+                'error': '请提供Postman Collection数据'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        try:
+            from apps.projects.models import Project
+            project = Project.objects.get(id=project_id)
+            
+            # 导入Collection
+            importer = PostmanImporter(project)
+            apis = importer.import_collection(collection_data)
+            
+            # 批量保存
+            API.objects.bulk_create(apis)
+            
+            return Response({
+                'message': f'成功导入 {len(apis)} 个接口',
+                'count': len(apis)
+            }, status=status.HTTP_201_CREATED)
+            
+        except Project.DoesNotExist:
+            return Response({
+                'error': '项目不存在'
+            }, status=status.HTTP_404_NOT_FOUND)
+        except ValueError as e:
+            return Response({
+                'error': str(e)
+            }, status=status.HTTP_400_BAD_REQUEST)
+        except Exception as e:
+            return Response({
+                'error': f'导入失败: {str(e)}'
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+    
+    @action(detail=False, methods=['post'])
+    def import_swagger(self, request):
+        """导入Swagger/OpenAPI文档"""
+        project_id = request.data.get('project_id')
+        spec_data = request.data.get('spec')
+        
+        if not project_id:
+            return Response({
+                'error': '请提供project_id'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        if not spec_data:
+            return Response({
+                'error': '请提供Swagger/OpenAPI文档数据'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        try:
+            from apps.projects.models import Project
+            project = Project.objects.get(id=project_id)
+            
+            # 导入Swagger/OpenAPI
+            importer = SwaggerImporter(project)
+            apis = importer.import_spec(spec_data)
+            
+            # 批量保存
+            API.objects.bulk_create(apis)
+            
+            return Response({
+                'message': f'成功导入 {len(apis)} 个接口',
+                'count': len(apis)
+            }, status=status.HTTP_201_CREATED)
+            
+        except Project.DoesNotExist:
+            return Response({
+                'error': '项目不存在'
+            }, status=status.HTTP_404_NOT_FOUND)
+        except ValueError as e:
+            return Response({
+                'error': str(e)
+            }, status=status.HTTP_400_BAD_REQUEST)
+        except Exception as e:
+            return Response({
+                'error': f'导入失败: {str(e)}'
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+    
+    @action(detail=False, methods=['get'])
+    def export_postman(self, request):
+        """导出为Postman Collection"""
+        project_id = request.query_params.get('project_id')
+        api_ids = request.query_params.get('api_ids')
+        
+        try:
+            # 优先使用api_ids（选中的接口）
+            if api_ids:
+                # 解析ID列表
+                id_list = [int(id.strip()) for id in api_ids.split(',') if id.strip()]
+                apis = API.objects.filter(id__in=id_list)
+                
+                if not apis.exists():
+                    return Response({
+                        'error': '未找到指定的接口'
+                    }, status=status.HTTP_404_NOT_FOUND)
+                
+                # 使用第一个接口的项目名
+                collection_name = 'Selected APIs'
+                if apis.first().project:
+                    collection_name = f'{apis.first().project.name} - Selected'
+            
+            # 否则使用project_id（导出整个项目）
+            elif project_id:
+                apis = API.objects.filter(project_id=project_id)
+                
+                if not apis.exists():
+                    return Response({
+                        'error': '项目中没有接口'
+                    }, status=status.HTTP_404_NOT_FOUND)
+                
+                project_name = apis.first().project.name if apis.first().project else 'Exported'
+                collection_name = f'{project_name} Collection'
+            
+            else:
+                return Response({
+                    'error': '请提供project_id或api_ids'
+                }, status=status.HTTP_400_BAD_REQUEST)
+            
+            # 导出为Postman Collection
+            exporter = PostmanExporter(list(apis), collection_name)
+            collection_json = exporter.export()
+            
+            # 返回JSON文件
+            response = HttpResponse(collection_json, content_type='application/json')
+            filename = collection_name.replace(' ', '_')
+            response['Content-Disposition'] = f'attachment; filename="{filename}.json"'
+            return response
+            
+        except ValueError as e:
+            return Response({
+                'error': 'api_ids格式不正确，应为逗号分隔的数字'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        except Exception as e:
+            return Response({
+                'error': f'导出失败: {str(e)}'
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
 

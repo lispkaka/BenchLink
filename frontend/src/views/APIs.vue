@@ -8,7 +8,7 @@
       </div>
 
       <div class="header-right">
-        <el-select v-model="methodFilter" style="width: 120px" placeholder="方法筛选" clearable>
+        <el-select v-model="methodFilter" style="width: 120px" placeholder="方法筛选" clearable @change="handleFilterChange">
           <el-option label="GET" value="GET" />
           <el-option label="POST" value="POST" />
           <el-option label="PUT" value="PUT" />
@@ -19,11 +19,24 @@
           placeholder="搜索接口名称或路径"
           style="width: 200px"
           clearable
+          @input="handleSearchInput"
         >
           <template #prefix>
             <el-icon><Search /></el-icon>
           </template>
         </el-input>
+        <el-button type="success" @click="showImportDialog = true">
+          <el-icon><Upload /></el-icon>
+          导入接口
+        </el-button>
+        <el-button 
+          type="warning" 
+          @click="handleExport"
+          :disabled="selectedAPIs.length === 0"
+        >
+          <el-icon><Download /></el-icon>
+          导出选中 ({{ selectedAPIs.length }})
+        </el-button>
         <el-button type="primary" @click="handleCreate">
           <el-icon><Plus /></el-icon>
           新建接口
@@ -61,17 +74,19 @@
       <template #header>
         <div class="card-header">
           <span class="card-title">接口列表</span>
-          <span class="card-subtitle">共 {{ filteredAPIs.length }} 个</span>
+          <span class="card-subtitle">共 {{ total }} 个</span>
         </div>
       </template>
 
       <el-table
-        :data="filteredAPIs"
+        :data="apis"
         stripe
         style="width: 100%"
         v-loading="loading"
         empty-text="暂无接口"
+        @selection-change="handleSelectionChange"
       >
+        <el-table-column type="selection" width="55" />
         <el-table-column prop="id" label="ID" width="80" />
         <el-table-column prop="name" label="接口名称" min-width="180" show-overflow-tooltip />
         <el-table-column label="方法" width="100">
@@ -321,6 +336,75 @@
       </template>
     </el-dialog>
 
+    <!-- 导入接口对话框 -->
+    <el-dialog
+      v-model="showImportDialog"
+      title="导入接口"
+      width="700px"
+    >
+      <el-form :model="importForm" label-width="100px">
+        <el-form-item label="导入类型">
+          <el-radio-group v-model="importForm.type">
+            <el-radio label="postman">Postman Collection v2.1</el-radio>
+            <el-radio label="swagger">Swagger/OpenAPI/Apifox</el-radio>
+          </el-radio-group>
+        </el-form-item>
+        
+        <el-form-item label="目标项目">
+          <el-select v-model="importForm.projectId" placeholder="请选择项目" style="width: 100%">
+            <el-option
+              v-for="project in projects"
+              :key="project.id"
+              :label="project.name"
+              :value="project.id"
+            />
+          </el-select>
+        </el-form-item>
+        
+        <el-form-item label="导入方式">
+          <el-radio-group v-model="importForm.method">
+            <el-radio label="file">上传文件</el-radio>
+            <el-radio label="text">粘贴JSON</el-radio>
+          </el-radio-group>
+        </el-form-item>
+        
+        <el-form-item v-if="importForm.method === 'file'" label="选择文件">
+          <el-upload
+            ref="uploadRef"
+            :auto-upload="false"
+            :limit="1"
+            accept=".json,.yaml,.yml"
+            :on-change="handleFileChange"
+            :file-list="fileList"
+          >
+            <el-button type="primary">选择文件</el-button>
+            <template #tip>
+              <div style="color: #909399; font-size: 12px; margin-top: 8px">
+                支持 .json、.yaml、.yml 格式
+              </div>
+            </template>
+          </el-upload>
+        </el-form-item>
+        
+        <el-form-item v-if="importForm.method === 'text'" label="JSON内容">
+          <el-input
+            v-model="importForm.content"
+            type="textarea"
+            :rows="12"
+            placeholder="粘贴 Postman Collection 或 Swagger/OpenAPI JSON 内容"
+            style="font-family: monospace; font-size: 13px"
+          />
+        </el-form-item>
+      </el-form>
+      
+      <template #footer>
+        <el-button @click="showImportDialog = false">取消</el-button>
+        <el-button type="primary" @click="handleImport" :loading="importing">
+          开始导入
+        </el-button>
+      </template>
+    </el-dialog>
+
     <!-- 执行结果对话框 -->
     <el-dialog
       v-model="executeResultDialog"
@@ -347,7 +431,15 @@
               </template>
             </el-table-column>
             <el-table-column prop="status_code" label="状态码" width="100" />
-            <el-table-column prop="url" label="请求URL" min-width="300" show-overflow-tooltip />
+            <el-table-column prop="url" label="请求URL" min-width="200" show-overflow-tooltip />
+            <el-table-column label="错误信息" min-width="250" show-overflow-tooltip>
+              <template #default="{ row }">
+                <el-text v-if="row.error" type="danger" size="small">
+                  {{ getErrorSummary(row.error) }}
+                </el-text>
+                <span v-else class="text-gray">-</span>
+              </template>
+            </el-table-column>
             <el-table-column prop="time" label="耗时(ms)" width="100" />
             <el-table-column label="操作" width="100">
               <template #default="{ row }">
@@ -373,7 +465,18 @@
             </el-descriptions-item>
             <el-descriptions-item label="耗时">{{ executeResult.time }}ms</el-descriptions-item>
             <el-descriptions-item label="错误信息" v-if="executeResult.error" :span="2">
-              <el-text type="danger">{{ executeResult.error }}</el-text>
+              <div style="display: flex; align-items: center; gap: 10px;">
+                <el-text type="danger">{{ getErrorSummary(executeResult.error) }}</el-text>
+                <el-button 
+                  v-if="executeResult.error && executeResult.error.length > 50"
+                  type="danger" 
+                  size="small" 
+                  link 
+                  @click="showFullError(executeResult.error)"
+                >
+                  查看详情
+                </el-button>
+              </div>
             </el-descriptions-item>
           </el-descriptions>
           
@@ -399,7 +502,7 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Search, Plus } from '@element-plus/icons-vue'
+import { Search, Plus, Upload, Download } from '@element-plus/icons-vue'
 import { getAPIs, createAPI, updateAPI, deleteAPI, executeAPI } from '../api/apis'
 import api from '../api/index'
 
@@ -409,6 +512,20 @@ const methodFilter = ref('')
 const apis = ref([])
 const projects = ref([])
 const total = ref(0)
+
+// 导入相关
+const showImportDialog = ref(false)
+const importing = ref(false)
+const fileList = ref([])
+const importForm = ref({
+  type: 'swagger',  // postman, swagger (apifox也用swagger)
+  projectId: null,
+  method: 'file',  // file or text
+  content: ''
+})
+
+// 导出相关
+const selectedAPIs = ref([])
 const submitting = ref(false)
 const dialogVisible = ref(false)
 const dialogTitle = ref('新建接口')
@@ -485,10 +602,22 @@ const filteredAPIs = computed(() => {
 const loadAPIs = async () => {
   loading.value = true
   try {
-    const response = await getAPIs({
+    const params = {
       page: pagination.value.page,
       page_size: pagination.value.pageSize
-    })
+    }
+    
+    // 添加搜索参数
+    if (searchQuery.value) {
+      params.search = searchQuery.value
+    }
+    
+    // 添加方法筛选参数
+    if (methodFilter.value) {
+      params.method = methodFilter.value
+    }
+    
+    const response = await getAPIs(params)
     
     if (response.results) {
       apis.value = response.results
@@ -763,6 +892,78 @@ const handleDialogClose = () => {
 const executeResultDialog = ref(false)
 const executeResult = ref(null)
 
+// 解析错误信息，返回友好提示
+const getErrorSummary = (error) => {
+  if (!error) return '执行失败'
+  
+  const errorStr = String(error)
+  
+  // URL相关错误
+  if (errorStr.includes('无法构建完整URL') || errorStr.includes('接口URL是相对路径')) {
+    if (errorStr.includes('base_url')) {
+      return '❌ URL配置错误：接口URL为相对路径，但未配置环境base_url'
+    }
+    return '❌ URL配置错误：接口URL不完整'
+  }
+  
+  // 连接错误
+  if (errorStr.includes('ConnectionError') || errorStr.includes('连接') || errorStr.includes('Max retries exceeded')) {
+    return '❌ 网络连接失败：无法连接到目标服务器，请检查URL和网络'
+  }
+  
+  // 超时错误
+  if (errorStr.includes('TimeoutError') || errorStr.includes('timeout') || errorStr.includes('超时')) {
+    return '❌ 请求超时：服务器响应时间过长'
+  }
+  
+  // DNS错误
+  if (errorStr.includes('Name or service not known') || errorStr.includes('getaddrinfo failed')) {
+    return '❌ 域名解析失败：无法找到目标服务器地址'
+  }
+  
+  // 认证错误
+  if (errorStr.includes('401') || errorStr.includes('Unauthorized')) {
+    return '❌ 认证失败：Token无效或未提供认证信息'
+  }
+  
+  // 权限错误
+  if (errorStr.includes('403') || errorStr.includes('Forbidden')) {
+    return '❌ 权限不足：没有访问该接口的权限'
+  }
+  
+  // 404错误
+  if (errorStr.includes('404') || errorStr.includes('Not Found')) {
+    return '❌ 接口不存在：请检查URL路径是否正确'
+  }
+  
+  // 500错误
+  if (errorStr.includes('500') || errorStr.includes('Internal Server Error')) {
+    return '❌ 服务器错误：目标服务器内部错误'
+  }
+  
+  // 断言失败
+  if (errorStr.includes('断言失败') || errorStr.includes('assertion')) {
+    return '❌ 断言失败：响应结果不符合预期'
+  }
+  
+  // 如果错误信息较短，直接显示
+  if (errorStr.length <= 100) {
+    return errorStr
+  }
+  
+  // 默认返回简短摘要
+  return '❌ 执行失败：' + errorStr.substring(0, 50) + '...'
+}
+
+// 显示完整错误信息
+const showFullError = (error) => {
+  ElMessageBox.alert(error, '完整错误信息', {
+    confirmButtonText: '关闭',
+    type: 'error',
+    customClass: 'error-detail-box'
+  })
+}
+
 const handleExecute = async (row) => {
   try {
     row.executing = true
@@ -780,16 +981,17 @@ const handleExecute = async (row) => {
     } else {
       executeResult.value = result
       executeResultDialog.value = true
-      // 如果执行失败，显示错误提示而不是成功提示
+      // 如果执行失败，显示友好的错误提示
       if (result.error || !result.success) {
-        ElMessage.error(result.error || '执行失败')
+        ElMessage.error(getErrorSummary(result.error))
       } else {
         ElMessage.success('执行成功')
       }
     }
   } catch (error) {
     console.error('执行失败:', error)
-    ElMessage.error(error.response?.data?.detail || error.response?.data?.error || '执行失败')
+    const errorMsg = error.response?.data?.detail || error.response?.data?.error || error.message || '执行失败'
+    ElMessage.error(getErrorSummary(errorMsg))
   } finally {
     row.executing = false
   }
@@ -823,6 +1025,145 @@ const handleSizeChange = (size) => {
 const handlePageChange = (page) => {
   pagination.value.page = page
   loadAPIs()
+}
+
+// 搜索防抖
+let searchTimeout = null
+const handleSearchInput = () => {
+  clearTimeout(searchTimeout)
+  searchTimeout = setTimeout(() => {
+    pagination.value.page = 1 // 搜索时重置到第一页
+    loadAPIs()
+  }, 500) // 500ms防抖
+}
+
+// 筛选处理
+const handleFilterChange = () => {
+  pagination.value.page = 1 // 筛选时重置到第一页
+  loadAPIs()
+}
+
+// 文件选择处理
+const handleFileChange = (file) => {
+  if (!file) return
+  fileList.value = [file]
+  
+  // 读取文件内容
+  const reader = new FileReader()
+  reader.onload = (e) => {
+    try {
+      importForm.value.content = e.target.result
+    } catch (error) {
+      ElMessage.error('文件读取失败')
+    }
+  }
+  reader.readAsText(file.raw)
+}
+
+// 导入接口
+const handleImport = async () => {
+  if (!importForm.value.projectId) {
+    ElMessage.warning('请选择目标项目')
+    return
+  }
+  
+  if (!importForm.value.content) {
+    ElMessage.warning('请选择文件或粘贴内容')
+    return
+  }
+  
+  importing.value = true
+  try {
+    let data
+    try {
+      data = JSON.parse(importForm.value.content)
+    } catch {
+      ElMessage.error('JSON格式不正确')
+      importing.value = false
+      return
+    }
+    
+    const apiUrl = importForm.value.type === 'postman' 
+      ? '/apis/apis/import_postman/'
+      : '/apis/apis/import_swagger/'
+    
+    const response = await api.post(apiUrl, {
+      project_id: importForm.value.projectId,
+      [importForm.value.type === 'postman' ? 'collection' : 'spec']: data
+    })
+    
+    // 响应拦截器已经返回了response.data，所以直接用response.message
+    ElMessage.success(response.message || '导入成功')
+    showImportDialog.value = false
+    importForm.value.content = ''
+    fileList.value = []
+    await loadAPIs()
+  } catch (error) {
+    console.error('导入失败:', error)
+    ElMessage.error(error.response?.data?.error || error.message || '导入失败')
+  } finally {
+    importing.value = false
+  }
+}
+
+// 选择处理
+const handleSelectionChange = (selection) => {
+  selectedAPIs.value = selection
+}
+
+// 导出接口
+const handleExport = async () => {
+  if (selectedAPIs.value.length === 0) {
+    ElMessage.warning('请先选择要导出的接口')
+    return
+  }
+  
+  try {
+    // 获取选中接口的ID列表
+    const apiIds = selectedAPIs.value.map(api => api.id).join(',')
+    const url = `/api/apis/apis/export_postman/?api_ids=${apiIds}`
+    
+    // 使用fetch下载文件
+    const response = await fetch(url, {
+      headers: {
+        'Authorization': `Bearer ${localStorage.getItem('token')}`
+      }
+    })
+    
+    if (!response.ok) {
+      throw new Error('导出失败')
+    }
+    
+    // 获取文件名
+    const contentDisposition = response.headers.get('Content-Disposition')
+    let filename = 'exported_collection.json'
+    if (contentDisposition) {
+      const filenameMatch = contentDisposition.match(/filename="?(.+)"?/)
+      if (filenameMatch) {
+        filename = filenameMatch[1]
+      }
+    }
+    
+    // 获取blob数据
+    const blob = await response.blob()
+    
+    // 创建下载链接
+    const downloadUrl = window.URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = downloadUrl
+    link.download = filename
+    document.body.appendChild(link)
+    link.click()
+    
+    // 清理
+    document.body.removeChild(link)
+    window.URL.revokeObjectURL(downloadUrl)
+    
+    ElMessage.success(`成功导出 ${selectedAPIs.value.length} 个接口`)
+  } catch (error) {
+    console.error('导出失败:', error)
+    ElMessage.error('导出失败')
+  }
 }
 
 const getMethodTagType = (method) => {

@@ -311,7 +311,6 @@ class TestCaseExecutor:
         # 禁止的危险操作
         FORBIDDEN_NODES = (
             ast.Import, ast.ImportFrom,  # 禁止导入
-            ast.Eval,  # 禁止eval
         )
         FORBIDDEN_FUNCTIONS = {
             'open', 'file', '__import__', 'exec', 'eval', 'compile',

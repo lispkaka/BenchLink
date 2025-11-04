@@ -3,6 +3,7 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
+from django.http import HttpResponse
 from django.utils import timezone
 from django.db.models import Q, Count, Avg, Max, Min, Prefetch
 from django.db.models.functions import TruncHour, TruncDay
@@ -12,6 +13,7 @@ from .models import Execution
 from .serializers import ExecutionSerializer
 from apps.testsuites.models import TestSuite
 from apps.testcases.models import TestCase
+from .report_template import HTML_REPORT_TEMPLATE, generate_testcase_html
 
 
 class ExecutionViewSet(viewsets.ModelViewSet):
@@ -19,6 +21,12 @@ class ExecutionViewSet(viewsets.ModelViewSet):
     queryset = Execution.objects.all()
     serializer_class = ExecutionSerializer
     permission_classes = [IsAuthenticated]
+
+    def get_permissions(self):
+        """导出报告不需要认证"""
+        if self.action in ['export_report']:
+            return []
+        return super().get_permissions()
 
     def get_queryset(self):
         project_id = self.request.query_params.get('project_id')
@@ -311,6 +319,92 @@ class ExecutionViewSet(viewsets.ModelViewSet):
             'message': f'成功删除 {deleted_count} 条执行记录',
             'deleted_count': deleted_count
         }, status=status.HTTP_200_OK)
+    
+    @action(detail=True, methods=['get'])
+    def export_report(self, request, pk=None):
+        """导出测试报告为HTML"""
+        execution = self.get_object()
+        
+        try:
+            # 准备报告数据
+            result = execution.result or {}
+            
+            # 基本信息
+            execution_name = execution.name
+            project_name = execution.project.name if execution.project else 'Unknown'
+            start_time = execution.start_time.strftime('%Y-%m-%d %H:%M:%S') if execution.start_time else 'N/A'
+            generated_time = timezone.now().strftime('%Y-%m-%d %H:%M:%S')
+            
+            # 统计信息
+            if execution.testsuite and not execution.testcase:
+                # 套件执行
+                total_count = result.get('total', 0)
+                passed_count = result.get('passed', 0)
+                failed_count = result.get('failed', 0)
+                pass_rate = result.get('pass_rate', 0)
+                duration = round(execution.duration, 2) if execution.duration else 0
+                
+                # 生成测试用例HTML
+                testcases_html = ''
+                case_results = result.get('case_results', [])
+                for case_result in case_results:
+                    testcase_data = {
+                        'name': case_result.get('testcase_name', 'Unknown'),
+                        'status': case_result.get('status', 'unknown'),
+                        'result': case_result.get('result', {}),
+                        'method': 'GET'  # 默认
+                    }
+                    testcases_html += generate_testcase_html(testcase_data)
+            else:
+                # 单个用例执行
+                total_count = 1
+                passed_count = 1 if execution.status == 'passed' else 0
+                failed_count = 1 if execution.status == 'failed' else 0
+                pass_rate = 100 if execution.status == 'passed' else 0
+                duration = round(execution.duration, 2) if execution.duration else 0
+                
+                # 生成测试用例HTML
+                testcase_data = {
+                    'name': execution.testcase.name if execution.testcase else execution.name,
+                    'status': execution.status,
+                    'result': result,
+                    'method': execution.testcase.api.method if execution.testcase and execution.testcase.api else 'GET'
+                }
+                testcases_html = generate_testcase_html(testcase_data)
+            
+            # 通过率颜色
+            if pass_rate >= 80:
+                pass_rate_color = '#10b981'
+            elif pass_rate >= 60:
+                pass_rate_color = '#f59e0b'
+            else:
+                pass_rate_color = '#ef4444'
+            
+            # 生成HTML报告
+            html_content = HTML_REPORT_TEMPLATE.format(
+                execution_name=execution_name,
+                project_name=project_name,
+                start_time=start_time,
+                generated_time=generated_time,
+                total_count=total_count,
+                passed_count=passed_count,
+                failed_count=failed_count,
+                pass_rate=pass_rate,
+                pass_rate_color=pass_rate_color,
+                duration=duration,
+                testcases_html=testcases_html
+            )
+            
+            # 返回HTML文件
+            response = HttpResponse(html_content, content_type='text/html; charset=utf-8')
+            filename = f"test_report_{execution.id}_{timezone.now().strftime('%Y%m%d_%H%M%S')}.html"
+            response['Content-Disposition'] = f'attachment; filename="{filename}"'
+            return response
+            
+        except Exception as e:
+            return Response({
+                'error': f'导出报告失败: {str(e)}'
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
 

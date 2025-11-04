@@ -19,6 +19,55 @@ html, body {
   overflow: hidden;
 }
 
+/* 浅色主题（默认） */
+html.light,
+body.light {
+  color-scheme: light;
+  background-color: #ffffff;
+  color: #303133;
+}
+
+/* 深色主题 */
+html.dark,
+body.dark {
+  color-scheme: dark;
+  background-color: #1d1e1f;
+  color: #e5eaf3;
+}
+
+html.dark .el-card {
+  background-color: #2d2d2d;
+  border-color: #404040;
+}
+
+html.dark .el-card__header {
+  border-bottom-color: #404040;
+}
+
+html.dark .el-input__inner,
+html.dark .el-textarea__inner {
+  background-color: #2d2d2d;
+  border-color: #404040;
+  color: #e5eaf3;
+}
+
+html.dark .el-menu {
+  background-color: #2d2d2d;
+  border-color: #404040;
+}
+
+html.dark .el-menu-item {
+  color: #e5eaf3;
+}
+
+html.dark .el-menu-item:hover {
+  background-color: #404040;
+}
+
+html.dark .el-menu-item.is-active {
+  background-color: #409eff;
+}
+
 #app {
   width: 100%;
   height: 100vh;

@@ -60,12 +60,12 @@
       <template #header>
         <div class="card-header">
           <span class="card-title">定时任务列表</span>
-          <span class="card-subtitle">共 {{ filteredSchedules.length }} 个</span>
+          <span class="card-subtitle">共 {{ total }} 个</span>
         </div>
       </template>
 
       <el-table
-        :data="filteredSchedules"
+        :data="schedules"
         stripe
         style="width: 100%"
         v-loading="loading"

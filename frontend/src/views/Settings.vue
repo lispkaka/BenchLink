@@ -155,11 +155,12 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { User, Lock, Setting, InfoFilled } from '@element-plus/icons-vue'
 import { getCurrentUser } from '../api/users'
 import api from '../api/index'
+import { useThemeStore } from '../store/theme'
 
 const saving = ref(false)
 const changingPassword = ref(false)
@@ -215,10 +216,23 @@ const passwordFormRules = {
   ]
 }
 
+const themeStore = useThemeStore()
+
 const systemForm = ref({
-  theme: 'light',
-  language: 'zh-CN',
+  theme: themeStore.theme,
+  language: themeStore.language,
   autoSave: true
+})
+
+// 监听主题变化，立即应用
+watch(() => systemForm.value.theme, (newTheme) => {
+  themeStore.setTheme(newTheme)
+})
+
+// 监听语言变化，立即应用
+watch(() => systemForm.value.language, (newLanguage) => {
+  themeStore.setLanguage(newLanguage)
+  ElMessage.success('语言设置已保存，部分组件需要刷新页面后生效')
 })
 
 const loadUserInfo = async () => {
@@ -296,22 +310,19 @@ const handleResetPassword = () => {
 }
 
 const handleSaveSystem = () => {
-  // 保存系统配置到localStorage
-  localStorage.setItem('systemConfig', JSON.stringify(systemForm.value))
+  // 保存系统配置（主题和语言已在watch中自动保存和应用）
+  themeStore.saveConfig()
   ElMessage.success('配置已保存')
 }
 
 onMounted(() => {
   loadUserInfo()
   
-  // 从localStorage加载系统配置
-  const savedConfig = localStorage.getItem('systemConfig')
-  if (savedConfig) {
-    try {
-      systemForm.value = { ...systemForm.value, ...JSON.parse(savedConfig) }
-    } catch (error) {
-      console.error('加载系统配置失败', error)
-    }
+  // 从store加载系统配置
+  systemForm.value = {
+    theme: themeStore.theme,
+    language: themeStore.language,
+    autoSave: JSON.parse(localStorage.getItem('systemConfig') || '{}').autoSave ?? true
   }
 })
 </script>

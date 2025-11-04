@@ -65,12 +65,12 @@
       <template #header>
         <div class="card-header">
           <span class="card-title">项目列表</span>
-          <span class="card-subtitle">共 {{ filteredProjects.length }} 个</span>
+          <span class="card-subtitle">共 {{ total }} 个</span>
         </div>
       </template>
 
       <el-table
-        :data="filteredProjects"
+        :data="projects"
         stripe
         style="width: 100%"
         v-loading="loading"

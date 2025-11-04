@@ -14,7 +14,6 @@
       <el-form :model="form" :rules="rules" ref="formRef" @submit.prevent="handleLogin" class="login-form">
         <!-- Username -->
         <el-form-item prop="username">
-          <label class="form-label">用户名</label>
           <el-input
             v-model="form.username"
             placeholder="请输入用户名"
@@ -24,8 +23,7 @@
         </el-form-item>
 
         <!-- Password -->
-        <el-form-item prop="password">
-          <label class="form-label">密码</label>
+        <el-form-item prop="password" class="password-item">
           <el-input
             v-model="form.password"
             type="password"
@@ -108,8 +106,8 @@ const handleLogin = async () => {
   align-items: center;
   min-height: 100vh;
   padding: 20px;
-  background: linear-gradient(to bottom, #f8fafc, #e2e8f0);
-  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  background: #f7f7f7;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
 }
 
 .login-card {
@@ -117,13 +115,15 @@ const handleLogin = async () => {
   border-radius: 16px;
   width: 100%;
   max-width: 420px;
-  padding: 40px;
-  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+  padding: 48px 40px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  display: flex;
+  flex-direction: column;
 }
 
 .logo-section {
   text-align: center;
-  margin-bottom: 40px;
+  margin-bottom: 48px;
 }
 
 .logo-icon {
@@ -143,94 +143,116 @@ const handleLogin = async () => {
 }
 
 .platform-title {
-  font-size: 28px;
-  font-weight: 700;
+  font-size: 24px;
+  font-weight: 600;
   color: #1e293b;
-  margin: 0 0 8px 0;
-}
-
-.platform-subtitle {
-  font-size: 14px;
-  color: #64748b;
   margin: 0;
 }
 
 .login-form {
   margin-top: 0;
-}
-
-.form-label {
-  display: block;
-  font-size: 14px;
-  font-weight: 500;
-  color: #374151;
-  margin-bottom: 8px;
+  flex: 1;
 }
 
 :deep(.el-form-item) {
-  margin-bottom: 24px;
+  margin-bottom: 6px;
 }
 
-:deep(.el-form-item__label) {
-  padding: 0;
+:deep(.el-form-item__error) {
+  padding-top: 2px;
+  color: #f56c6c;
+  font-size: 12px;
+}
+
+/* 去掉验证失败时的红色边框 */
+:deep(.el-form-item.is-error .el-input__wrapper) {
+  border-bottom-color: #e0e0e0 !important;
+  box-shadow: none !important;
+}
+
+:deep(.el-form-item.is-error .el-input__wrapper:hover) {
+  border-bottom-color: #999 !important;
+}
+
+:deep(.el-form-item.is-error .el-input__wrapper.is-focus) {
+  border-bottom-color: #333 !important;
+  box-shadow: none !important;
+}
+
+.password-item {
   margin-bottom: 8px;
-  line-height: 1.5;
+}
+
+.custom-input {
+  width: 100%;
 }
 
 .custom-input :deep(.el-input__wrapper) {
-  background-color: #f9fafb;
-  border: 1px solid #d1d5db;
-  border-radius: 8px;
-  padding: 12px 16px;
-  box-shadow: none;
-  transition: all 0.2s;
+  background-color: transparent !important;
+  border: none !important;
+  border-bottom: 1px solid #e0e0e0 !important;
+  border-radius: 0 !important;
+  padding: 12px 0 !important;
+  box-shadow: none !important;
+  transition: border-color 0.2s;
 }
 
 .custom-input :deep(.el-input__wrapper:hover) {
-  border-color: #94a3b8;
+  border-bottom-color: #999 !important;
+  box-shadow: none !important;
 }
 
 .custom-input :deep(.el-input__wrapper.is-focus) {
-  border-color: #94a3b8;
-  box-shadow: 0 0 0 4px rgba(148, 163, 184, 0.2);
+  border-bottom-color: #333 !important;
+  box-shadow: none !important;
+}
+
+.custom-input :deep(.el-input__wrapper::before),
+.custom-input :deep(.el-input__wrapper::after) {
+  display: none !important;
 }
 
 .custom-input :deep(.el-input__inner) {
-  color: #1e293b;
-  font-size: 14px;
+  color: #333;
+  font-size: 15px;
+  padding: 0;
 }
 
 .custom-input :deep(.el-input__inner::placeholder) {
-  color: #9ca3af;
+  color: #999;
 }
 
+.custom-input :deep(.el-input__suffix) {
+  right: 0;
+}
 
 .login-button {
   width: 100%;
-  height: 44px;
-  background-color: #475569;
-  border-color: #475569;
-  font-size: 15px;
+  height: 48px;
+  background-color: #000;
+  border-color: #000;
+  font-size: 16px;
   font-weight: 500;
   border-radius: 8px;
   transition: all 0.2s;
+  margin-top: 8px;
 }
 
 .login-button:hover {
-  background-color: #334155;
-  border-color: #334155;
-  transform: scale(1.02);
+  background-color: #333;
+  border-color: #333;
 }
 
 .login-button:active {
-  transform: scale(0.98);
+  background-color: #1a1a1a;
 }
 
 .footer {
-  margin-top: 40px;
+  margin-top: 32px;
   text-align: center;
-  font-size: 12px;
-  color: #9ca3af;
+  font-size: 13px;
+  color: #666;
+  line-height: 1.5;
 }
 </style>
 

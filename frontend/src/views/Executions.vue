@@ -71,12 +71,12 @@
       <template #header>
         <div class="card-header">
           <span class="card-title">执行记录列表</span>
-          <span class="card-subtitle">共 {{ filteredExecutions.length }} 条</span>
+          <span class="card-subtitle">共 {{ total }} 条</span>
         </div>
       </template>
 
       <el-table
-        :data="filteredExecutions"
+        :data="executions"
         stripe
         style="width: 100%"
         v-loading="loading"
@@ -172,10 +172,13 @@
             <span class="text-gray">{{ formatDate(row.start_time) }}</span>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="200" fixed="right">
+        <el-table-column label="操作" width="260" fixed="right">
           <template #default="{ row }">
             <el-button type="primary" size="small" link @click="handleView(row)">
               查看详情
+            </el-button>
+            <el-button type="success" size="small" link @click="exportReport(row.id)">
+              导出报告
             </el-button>
             <el-button type="danger" size="small" link @click="handleDelete(row)">
               删除
@@ -649,6 +652,53 @@ const handleBatchDelete = async () => {
       console.error('批量删除失败:', error)
       ElMessage.error(error.response?.data?.error || error.response?.data?.detail || '批量删除失败')
     }
+  }
+}
+
+const exportReport = async (executionId) => {
+  try {
+    const url = `/api/executions/executions/${executionId}/export_report/`
+    
+    // 使用fetch下载文件
+    const response = await fetch(url, {
+      headers: {
+        'Authorization': `Bearer ${localStorage.getItem('token')}`
+      }
+    })
+    
+    if (!response.ok) {
+      throw new Error('导出失败')
+    }
+    
+    // 获取文件名
+    const contentDisposition = response.headers.get('Content-Disposition')
+    let filename = `test_report_${executionId}.html`
+    if (contentDisposition) {
+      const filenameMatch = contentDisposition.match(/filename="?(.+)"?/)
+      if (filenameMatch) {
+        filename = filenameMatch[1]
+      }
+    }
+    
+    // 获取blob数据
+    const blob = await response.blob()
+    
+    // 创建下载链接
+    const downloadUrl = window.URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = downloadUrl
+    link.download = filename
+    document.body.appendChild(link)
+    link.click()
+    
+    // 清理
+    document.body.removeChild(link)
+    window.URL.revokeObjectURL(downloadUrl)
+    
+    ElMessage.success('报告导出成功')
+  } catch (error) {
+    console.error('导出失败:', error)
+    ElMessage.error('导出报告失败')
   }
 }
 

@@ -24,6 +24,13 @@ class API(models.Model):
     body = models.JSONField(default=dict, verbose_name='请求体')
     auth_type = models.CharField(max_length=50, blank=True, null=True, verbose_name='认证类型')
     auth_config = models.JSONField(default=dict, verbose_name='认证配置')
+    # 文件上传支持
+    files = models.JSONField(
+        default=dict,
+        blank=True,
+        verbose_name='文件上传配置',
+        help_text='格式: {"field_name": {"file_path": "/path/to/file", "content_type": "image/jpeg"}}'
+    )
     # 参数化功能
     parameterized_mode = models.CharField(
         max_length=20,

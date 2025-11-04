@@ -35,6 +35,12 @@ class TestCase(models.Model):
         verbose_name='请求体覆盖（支持变量）',
         help_text='覆盖接口定义的请求体，支持${variable}变量，留空则使用接口定义的请求体'
     )
+    files_override = models.JSONField(
+        default=dict,
+        blank=True,
+        verbose_name='文件上传覆盖（支持变量）',
+        help_text='覆盖接口定义的文件上传配置，支持${variable}变量，留空则使用接口定义的文件配置'
+    )
     params_override = models.JSONField(
         default=dict,
         blank=True,
