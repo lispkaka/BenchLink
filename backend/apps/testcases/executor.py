@@ -305,12 +305,57 @@ class TestCaseExecutor:
                 # 提取失败，记录但不影响执行
                 print(f"变量提取失败 {var_name}: {str(e)}")
     
+    def _validate_script(self, script: str) -> bool:
+        """验证脚本是否安全"""
+        import ast
+        # 禁止的危险操作
+        FORBIDDEN_NODES = (
+            ast.Import, ast.ImportFrom,  # 禁止导入
+            ast.Eval,  # 禁止eval
+        )
+        FORBIDDEN_FUNCTIONS = {
+            'open', 'file', '__import__', 'exec', 'eval', 'compile',
+            'reload', 'input', 'raw_input', 'execfile', 'exit', 'quit',
+        }
+        
+        try:
+            tree = ast.parse(script)
+            for node in ast.walk(tree):
+                # 检查禁止的节点类型
+                if isinstance(node, FORBIDDEN_NODES):
+                    return False
+                # 检查禁止的函数调用
+                if isinstance(node, ast.Call):
+                    if isinstance(node.func, ast.Name):
+                        if node.func.id in FORBIDDEN_FUNCTIONS:
+                            return False
+                    # 检查属性访问（如 __import__）
+                    if isinstance(node.func, ast.Attribute):
+                        if node.func.attr in FORBIDDEN_FUNCTIONS:
+                            return False
+            return True
+        except SyntaxError:
+            return False
+        except Exception:
+            # 如果解析失败，拒绝执行
+            return False
+    
     def _execute_pre_script(self) -> None:
         """执行前置脚本（Python脚本）"""
         if not self.testcase.pre_script:
             return
         
         script = self.testcase.pre_script
+        
+        # 验证脚本安全性
+        if not self._validate_script(script):
+            print(f"前置脚本包含不安全操作，已拒绝执行")
+            return
+        
+        # 限制脚本长度，防止资源耗尽
+        if len(script) > 10000:  # 10KB限制
+            print(f"前置脚本过长（{len(script)}字符），已拒绝执行")
+            return
         
         # 准备脚本执行上下文
         context = {
@@ -339,6 +384,7 @@ class TestCaseExecutor:
                 'range': range,
             }
             
+            # 移除setattr等可能被滥用的函数
             exec(script, {'__builtins__': safe_builtins}, context)
         except Exception as e:
             # 脚本执行错误，记录但不中断测试
@@ -350,6 +396,16 @@ class TestCaseExecutor:
             return
         
         script = self.testcase.post_script
+        
+        # 验证脚本安全性
+        if not self._validate_script(script):
+            print(f"后置脚本包含不安全操作，已拒绝执行")
+            return
+        
+        # 限制脚本长度，防止资源耗尽
+        if len(script) > 10000:  # 10KB限制
+            print(f"后置脚本过长（{len(script)}字符），已拒绝执行")
+            return
         
         # 准备脚本执行上下文
         context = {
@@ -413,6 +469,16 @@ class TestCaseExecutor:
         
         script = self.environment.pre_hook
         
+        # 验证脚本安全性
+        if not self._validate_script(script):
+            print(f"环境前置钩子包含不安全操作，已拒绝执行")
+            return
+        
+        # 限制脚本长度，防止资源耗尽
+        if len(script) > 10000:  # 10KB限制
+            print(f"环境前置钩子过长（{len(script)}字符），已拒绝执行")
+            return
+        
         # 准备脚本执行上下文
         context = {
             'variables': self.variables,
@@ -442,6 +508,16 @@ class TestCaseExecutor:
             return
         
         script = self.environment.post_hook
+        
+        # 验证脚本安全性
+        if not self._validate_script(script):
+            print(f"环境后置钩子包含不安全操作，已拒绝执行")
+            return
+        
+        # 限制脚本长度，防止资源耗尽
+        if len(script) > 10000:  # 10KB限制
+            print(f"环境后置钩子过长（{len(script)}字符），已拒绝执行")
+            return
         
         # 准备脚本执行上下文
         context = {
@@ -517,6 +593,26 @@ class TestCaseExecutor:
             description = assertion.get('description', f'手动断言 #{idx + 1}')
             
             if not script:
+                continue
+            
+            # 验证脚本安全性
+            if not self._validate_script(script):
+                manual_assertions.append({
+                    'type': assertion.get('type', 'manual'),
+                    'description': description,
+                    'success': False,
+                    'message': '脚本包含不安全操作，已拒绝执行'
+                })
+                continue
+            
+            # 限制脚本长度，防止资源耗尽
+            if len(script) > 10000:  # 10KB限制
+                manual_assertions.append({
+                    'type': assertion.get('type', 'manual'),
+                    'description': description,
+                    'success': False,
+                    'message': f'脚本过长（{len(script)}字符），已拒绝执行'
+                })
                 continue
             
             try:

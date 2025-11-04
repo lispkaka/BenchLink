@@ -40,6 +40,18 @@
           <el-icon><Clock /></el-icon>
           <span>定时任务</span>
         </el-menu-item>
+        <el-sub-menu index="/performance">
+          <template #title>
+            <el-icon><DataAnalysis /></el-icon>
+            <span>性能测试</span>
+          </template>
+          <el-menu-item index="/performance/tests">
+            <span>性能测试</span>
+          </el-menu-item>
+          <el-menu-item index="/performance/reports">
+            <span>测试报告</span>
+          </el-menu-item>
+        </el-sub-menu>
         <el-sub-menu index="/config">
           <template #title>
             <el-icon><Setting /></el-icon>
@@ -75,7 +87,7 @@
 import { computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useUserStore } from '../store'
-import { DataBoard, Folder, Link, Document, Collection, VideoPlay, Clock, Setting, User } from '@element-plus/icons-vue'
+import { DataBoard, Folder, Link, Document, Collection, VideoPlay, Clock, Setting, User, DataAnalysis } from '@element-plus/icons-vue'
 
 const route = useRoute()
 const router = useRouter()

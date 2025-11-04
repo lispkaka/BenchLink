@@ -2,6 +2,7 @@ from rest_framework import viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework import status
+from rest_framework.permissions import IsAuthenticated
 from django.utils import timezone
 from .models import TestSuite
 from .serializers import TestSuiteSerializer
@@ -13,6 +14,7 @@ class TestSuiteViewSet(viewsets.ModelViewSet):
     """测试套件视图集"""
     queryset = TestSuite.objects.all()
     serializer_class = TestSuiteSerializer
+    permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
         project_id = self.request.query_params.get('project_id')

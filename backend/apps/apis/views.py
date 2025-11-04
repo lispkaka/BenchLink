@@ -2,6 +2,7 @@ from rest_framework import viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework import status
+from rest_framework.permissions import IsAuthenticated
 import requests
 import re
 import time
@@ -14,6 +15,7 @@ class APIViewSet(viewsets.ModelViewSet):
     """接口视图集"""
     queryset = API.objects.all()
     serializer_class = APISerializer
+    permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
         project_id = self.request.query_params.get('project_id')

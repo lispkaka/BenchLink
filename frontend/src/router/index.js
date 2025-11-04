@@ -9,6 +9,10 @@ import Executions from '../views/Executions.vue'
 import Scheduler from '../views/Scheduler.vue'
 import Environments from '../views/Environments.vue'
 import GlobalTokens from '../views/GlobalTokens.vue'
+import PerformanceTaskList from '../views/performance/PerformanceTaskList.vue'
+import PerformanceTaskCreate from '../views/performance/PerformanceTaskCreate.vue'
+import PerformanceScripts from '../views/performance/PerformanceScripts.vue'
+import PerformanceReports from '../views/performance/PerformanceReports.vue'
 import Settings from '../views/Settings.vue'
 
 const routes = [
@@ -66,6 +70,16 @@ const routes = [
         path: 'global-tokens',
         name: 'GlobalTokens',
         component: GlobalTokens
+      },
+      {
+        path: 'performance/tests',
+        name: 'PerformanceTests',
+        component: PerformanceTaskList
+      },
+      {
+        path: 'performance/reports',
+        name: 'PerformanceReports',
+        component: PerformanceReports
       },
       {
         path: 'settings',

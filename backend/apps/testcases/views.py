@@ -2,13 +2,20 @@ from rest_framework import viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework import status as http_status
+from rest_framework.permissions import IsAuthenticated
 from django.utils import timezone
 from django.db import transaction
 from django.db.models import Q, Count, Avg
 from datetime import datetime, timedelta
-from .models import TestCase
-from .serializers import TestCaseSerializer
+from django.http import FileResponse, Http404
+from pathlib import Path
+import logging
+
+logger = logging.getLogger(__name__)
+from .models import TestCase, PerformanceTest
+from .serializers import TestCaseSerializer, PerformanceTestSerializer
 from .executor import TestCaseExecutor
+from .locust_executor import LocustExecutor
 from apps.executions.models import Execution
 
 
@@ -16,6 +23,7 @@ class TestCaseViewSet(viewsets.ModelViewSet):
     """测试用例视图集"""
     queryset = TestCase.objects.all()
     serializer_class = TestCaseSerializer
+    permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
         project_id = self.request.query_params.get('project_id')
@@ -37,6 +45,17 @@ class TestCaseViewSet(viewsets.ModelViewSet):
         
         # 获取参数化数据（优先级：前端传入 > 用例定义）
         parameterized_data = data.get('parameterized_data') or testcase.parameterized_data
+        
+        # 验证参数化数据
+        if parameterized_mode == 'enabled' and parameterized_data:
+            if not isinstance(parameterized_data, list):
+                return Response({'error': '参数化数据必须是列表'}, 
+                              status=http_status.HTTP_400_BAD_REQUEST)
+            
+            # 限制参数化数据数量，防止DoS攻击
+            if len(parameterized_data) > 100:
+                return Response({'error': '参数化数据最多100条'}, 
+                              status=http_status.HTTP_400_BAD_REQUEST)
         
         # 如果启用参数化且有参数化数据
         if parameterized_mode == 'enabled' and parameterized_data and isinstance(parameterized_data, list) and len(parameterized_data) > 0:
@@ -280,6 +299,118 @@ class TestCaseViewSet(viewsets.ModelViewSet):
             'pass_rate': pass_rate,
             'avg_duration': avg_duration_str
         }, status=http_status.HTTP_200_OK)
+
+
+class PerformanceTestViewSet(viewsets.ModelViewSet):
+    """性能测试视图集"""
+    queryset = PerformanceTest.objects.all()
+    serializer_class = PerformanceTestSerializer
+
+    def get_queryset(self):
+        project_id = self.request.query_params.get('project_id')
+        if project_id:
+            return PerformanceTest.objects.filter(project_id=project_id)
+        return PerformanceTest.objects.all()
+
+    @action(detail=True, methods=['post'])
+    def execute(self, request, pk=None):
+        """执行性能测试（使用 Locust）"""
+        performance_test = self.get_object()
+        
+        try:
+            # 使用 Locust 执行器
+            executor = LocustExecutor(performance_test)
+            result = executor.execute()
+            
+            # 保存执行结果
+            if result.get('success'):
+                performance_test.last_result = result
+                performance_test.last_execution_time = timezone.now()
+                performance_test.save()
+                
+                return Response({
+                    'success': True,
+                    'message': '性能测试执行成功',
+                    'result': result
+                }, status=http_status.HTTP_200_OK)
+            else:
+                return Response({
+                    'success': False,
+                    'message': '性能测试执行失败',
+                    'error': result.get('error', '未知错误'),
+                    'result': result
+                }, status=http_status.HTTP_500_INTERNAL_SERVER_ERROR)
+        
+        except ValueError as e:
+            return Response({
+                'success': False,
+                'error': str(e)
+            }, status=http_status.HTTP_400_BAD_REQUEST)
+        except Exception as e:
+            logger.exception(f"执行性能测试失败: {e}")
+            return Response({
+                'success': False,
+                'error': f'执行失败: {str(e)}'
+            }, status=http_status.HTTP_500_INTERNAL_SERVER_ERROR)
+    
+    @action(detail=True, methods=['get'])
+    def html_report(self, request, pk=None):
+        """获取性能测试的HTML报告"""
+        performance_test = self.get_object()
+        
+        # 获取HTML报告路径
+        html_report_path = None
+        if performance_test.last_result:
+            html_report_path = performance_test.last_result.get('html_report')
+            if not html_report_path:
+                html_report_path = performance_test.last_result.get('result', {}).get('html_report')
+        
+        if not html_report_path:
+            return Response({
+                'error': '未找到HTML报告，请先执行性能测试'
+            }, status=http_status.HTTP_404_NOT_FOUND)
+        
+        # 检查文件是否存在
+        report_file = Path(html_report_path)
+        if not report_file.exists():
+            # 如果文件不存在，尝试查找HTML报告目录
+            if report_file.suffix == '.html':
+                # 如果路径是HTML文件但不存在，尝试查找同名的report目录
+                report_dir = report_file.parent / 'report'
+                if report_dir.exists():
+                    index_file = report_dir / 'index.html'
+                    if index_file.exists():
+                        report_file = index_file
+                    else:
+                        return Response({
+                            'error': 'HTML报告文件不存在'
+                        }, status=http_status.HTTP_404_NOT_FOUND)
+                else:
+                    return Response({
+                        'error': 'HTML报告文件不存在'
+                    }, status=http_status.HTTP_404_NOT_FOUND)
+            else:
+                return Response({
+                    'error': 'HTML报告文件不存在'
+                }, status=http_status.HTTP_404_NOT_FOUND)
+        
+        try:
+            # 返回HTML文件（使用FileResponse）
+            response = FileResponse(
+                open(report_file, 'rb'),
+                content_type='text/html; charset=utf-8',
+                filename=report_file.name
+            )
+            # 添加CORS头，允许跨域访问
+            response['Access-Control-Allow-Origin'] = '*'
+            response['Access-Control-Allow-Methods'] = 'GET'
+            response['Access-Control-Allow-Headers'] = 'Authorization, Content-Type'
+            return response
+        except Exception as e:
+            logger.exception(f"读取HTML报告失败: {e}")
+            return Response({
+                'error': f'读取报告失败: {str(e)}'
+            }, status=http_status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
 

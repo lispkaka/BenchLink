@@ -2,6 +2,7 @@ from rest_framework import viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework import status
+from rest_framework.permissions import IsAuthenticated
 from django.utils import timezone
 from django.db.models import Q, Count, Avg, Max, Min, Prefetch
 from django.db.models.functions import TruncHour, TruncDay
@@ -17,6 +18,7 @@ class ExecutionViewSet(viewsets.ModelViewSet):
     """测试执行视图集"""
     queryset = Execution.objects.all()
     serializer_class = ExecutionSerializer
+    permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
         project_id = self.request.query_params.get('project_id')
@@ -42,8 +44,17 @@ class ExecutionViewSet(viewsets.ModelViewSet):
     @action(detail=False, methods=['get'])
     def dashboard(self, request):
         """仪表盘统计数据"""
-        # 获取时间范围参数（默认最近24小时）
-        hours = int(request.query_params.get('hours', 24))
+        # 获取并验证时间范围参数（默认最近24小时）
+        try:
+            hours = int(request.query_params.get('hours', 24))
+            # 限制范围：1小时到30天（720小时），防止DoS攻击
+            if hours < 1:
+                hours = 1
+            elif hours > 720:
+                hours = 720
+        except (ValueError, TypeError):
+            hours = 24  # 默认值
+        
         time_start = timezone.now() - timedelta(hours=hours)
         today_start = timezone.now().replace(hour=0, minute=0, second=0, microsecond=0)
 
@@ -102,7 +113,7 @@ class ExecutionViewSet(viewsets.ModelViewSet):
             }
         ]
 
-        # 4. 最近运行列表（最近10条）
+        # 4. 最近运行列表（最近10条，优先显示父记录）
         recent_runs = Execution.objects.filter(
             created_at__gte=time_start
         ).order_by('-created_at')[:10]
@@ -111,25 +122,27 @@ class ExecutionViewSet(viewsets.ModelViewSet):
         for run in recent_runs:
             recent_runs_data.append({
                 'id': run.id,
-                'suite': run.testsuite.name if run.testsuite else '-',
+                'suite': run.testsuite.name if run.testsuite else (run.testcase.project.name if run.testcase and run.testcase.project else '-'),
                 'testcase': run.testcase.name if run.testcase else '-',
                 'env': run.testsuite.environment.name if run.testsuite and run.testsuite.environment else '-',
-                'startedAt': run.start_time.strftime('%Y-%m-%d %H:%M:%S') if run.start_time else '-',
-                'duration': f"{run.duration}s" if run.duration else '-',
+                'startedAt': run.start_time.strftime('%Y-%m-%d %H:%M:%S') if run.start_time else (run.created_at.strftime('%Y-%m-%d %H:%M:%S') if run.created_at else '-'),
+                'duration': f"{run.duration:.4f}s" if run.duration else '-',
                 'status': self._get_status_text(run.status)
             })
 
         # 5. 失败趋势（按用例统计）
-        failed_by_case = Execution.objects.filter(
+        # 统计所有有执行记录的用例，包括有失败和没有失败的
+        case_stats = Execution.objects.filter(
             created_at__gte=time_start,
             testcase__isnull=False
         ).values('testcase__name').annotate(
             total=Count('id'),
             failures=Count('id', filter=Q(status='failed'))
-        ).filter(failures__gt=0).order_by('-failures')[:10]
+        ).order_by('-failures', '-total')[:10]
 
         failure_trend = []
-        for item in failed_by_case:
+        for item in case_stats:
+            # 优先显示有失败的用例，但也显示执行次数较多的用例（即使没有失败）
             failure_trend.append({
                 'name': item['testcase__name'],
                 'runs': item['total'],
@@ -264,13 +277,30 @@ class ExecutionViewSet(viewsets.ModelViewSet):
     @action(detail=False, methods=['post'])
     def batch_delete(self, request):
         """批量删除执行记录"""
+        if not request.user.is_authenticated:
+            return Response({'error': '需要认证'}, status=status.HTTP_401_UNAUTHORIZED)
+        
         execution_ids = request.data.get('ids', [])
         if not execution_ids:
             return Response({
                 'error': '请提供要删除的执行记录ID列表'
             }, status=status.HTTP_400_BAD_REQUEST)
         
-        # 验证是否都是有效的ID
+        # 限制批量删除数量，防止DoS攻击
+        if len(execution_ids) > 100:
+            return Response({
+                'error': '一次最多只能删除100条记录'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        # 验证ID类型和格式
+        try:
+            execution_ids = [int(id) for id in execution_ids]
+        except (ValueError, TypeError):
+            return Response({
+                'error': 'ID格式不正确，必须是整数列表'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        # 验证是否都是有效的ID（只查询存在的记录）
         executions = Execution.objects.filter(id__in=execution_ids)
         deleted_count = executions.count()
         

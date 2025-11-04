@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import TestCase
+from .models import TestCase, PerformanceTest
 from apps.projects.serializers import ProjectSerializer
 from apps.apis.serializers import APISerializer
 from apps.environments.serializers import EnvironmentSerializer
@@ -72,6 +72,39 @@ class TestCaseSerializer(serializers.ModelSerializer):
             else:
                 return f"{(duration_ms / 1000):.2f}s"
         return None
+
+
+class PerformanceTestSerializer(serializers.ModelSerializer):
+    """性能测试序列化器"""
+    project = ProjectSerializer(read_only=True)
+    api = APISerializer(read_only=True)
+    environment = EnvironmentSerializer(read_only=True)
+    project_id = serializers.PrimaryKeyRelatedField(
+        queryset=Project.objects.all(),
+        write_only=True,
+        source='project',
+        required=True
+    )
+    api_id = serializers.PrimaryKeyRelatedField(
+        queryset=API.objects.all(),
+        write_only=True,
+        source='api',
+        required=True
+    )
+    environment_id = serializers.PrimaryKeyRelatedField(
+        queryset=Environment.objects.all(),
+        write_only=True,
+        source='environment',
+        required=False,
+        allow_null=True
+    )
+
+    class Meta:
+        model = PerformanceTest
+        fields = ['id', 'name', 'project', 'project_id', 'api', 'api_id', 'environment', 'environment_id',
+                  'description', 'threads', 'ramp_up', 'duration', 'loops', 'jmx_file',
+                  'last_result', 'last_execution_time', 'is_active', 'created_at', 'updated_at']
+        read_only_fields = ['id', 'created_at', 'updated_at', 'last_result', 'last_execution_time']
 
 
 

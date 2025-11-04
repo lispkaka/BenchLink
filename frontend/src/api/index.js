@@ -2,7 +2,7 @@ import axios from 'axios'
 
 const api = axios.create({
   baseURL: '/api',
-  timeout: 10000,
+  timeout: 10000,  // 默认10秒超时，但可以在具体请求中覆盖
   headers: {
     'Content-Type': 'application/json'
   }
@@ -38,6 +38,10 @@ api.interceptors.request.use(
 // 响应拦截器
 api.interceptors.response.use(
   response => {
+    // 如果是blob类型（如HTML报告），直接返回response对象
+    if (response.config.responseType === 'blob') {
+      return response.data  // 返回Blob对象
+    }
     return response.data
   },
   error => {

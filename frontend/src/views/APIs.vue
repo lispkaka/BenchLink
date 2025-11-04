@@ -392,6 +392,7 @@
         <el-button type="primary" @click="executeResultDialog = false">关闭</el-button>
       </template>
     </el-dialog>
+
   </div>
 </template>
 
@@ -990,6 +991,12 @@ onMounted(() => {
 .text-gray {
   color: #909399;
   font-size: 12px;
+}
+
+.form-tip {
+  font-size: 12px;
+  color: #909399;
+  margin-top: 4px;
 }
 
 .pagination-container {
