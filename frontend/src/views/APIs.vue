@@ -771,15 +771,24 @@ const handleExecute = async (row) => {
     if (result.parameterized) {
       executeResult.value = result
       executeResultDialog.value = true
-      ElMessage.success(`参数化执行完成：${result.passed}通过，${result.failed}失败`)
+      if (result.failed > 0) {
+        ElMessage.warning(`参数化执行完成：${result.passed}通过，${result.failed}失败`)
+      } else {
+        ElMessage.success(`参数化执行完成：${result.passed}通过，${result.failed}失败`)
+      }
     } else {
       executeResult.value = result
       executeResultDialog.value = true
-      ElMessage.success('执行成功')
+      // 如果执行失败，显示错误提示而不是成功提示
+      if (result.error || !result.success) {
+        ElMessage.error(result.error || '执行失败')
+      } else {
+        ElMessage.success('执行成功')
+      }
     }
   } catch (error) {
     console.error('执行失败:', error)
-    ElMessage.error(error.response?.data?.detail || '执行失败')
+    ElMessage.error(error.response?.data?.detail || error.response?.data?.error || '执行失败')
   } finally {
     row.executing = false
   }

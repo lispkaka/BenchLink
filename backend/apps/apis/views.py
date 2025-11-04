@@ -59,8 +59,26 @@ class APIViewSet(viewsets.ModelViewSet):
             api_url = api_url.lstrip('/')
             return f"{base_url}/{api_url}" if api_url else base_url
         
-        # 否则返回相对路径
-        return api_url
+        # 如果没有base_url，尝试从接口关联的项目中获取环境
+        if api_instance.project:
+            from apps.environments.models import Environment
+            # 获取项目的第一个激活的环境
+            env = Environment.objects.filter(
+                project=api_instance.project,
+                is_active=True
+            ).first()
+            if env and env.base_url:
+                base_url = env.base_url.rstrip('/')
+                api_url = api_url.lstrip('/')
+                return f"{base_url}/{api_url}" if api_url else base_url
+        
+        # 如果都没有，抛出错误
+        raise ValueError(
+            f"无法构建完整URL：接口URL是相对路径 '{api_url}'，但未提供base_url。"
+            f"请选择以下方式之一：1) 在接口URL中填写完整地址（如：https://api.example.com/point/pointRecord/list）；"
+            f"2) 在项目的环境配置中创建并激活环境，填写base_url；"
+            f"3) 执行接口时提供base_url参数。"
+        )
 
     def _build_headers(self, api_instance: API, variables: Dict = None) -> Dict[str, str]:
         """构建请求头"""
