@@ -49,6 +49,19 @@ class TestCaseExecutor:
         self.api = testcase.api
         self.environment = environment or testcase.environment
         self.variables = {}
+        
+        # 【修复】立即注入全局Token的variables和token值，无论接口是否配置认证
+        # 这样单独执行测试用例时，${token}等变量可以从全局Token获取
+        global_token = self._get_global_token()
+        if global_token:
+            # 1. 注入全局Token的variables字段（如果有配置）
+            if global_token.variables:
+                self.variables.update(global_token.variables)
+            # 2. 【关键】将token值自动注入为 "_global_token_static" 变量（保留全局Token的静态值）
+            # 注意：不直接注入到"token"，避免覆盖测试套件中动态提取的token
+            if global_token.token:
+                self.variables['_global_token_static'] = global_token.token
+        
         self.response = None
         self.execution_result = {
             'status_code': None,
@@ -124,13 +137,13 @@ class TestCaseExecutor:
         if self.environment and self.environment.headers:
             headers.update(self.environment.headers)
         
-        # 方案A：优先级：用例覆盖 > 接口定义
-        if self.testcase.headers_override:
-            # 用例覆盖请求头
-            headers.update(self.testcase.headers_override)
-        elif self.api.headers:
-            # 使用接口定义的请求头
+        # 先合并接口定义的请求头
+        if self.api.headers:
             headers.update(self.api.headers)
+        
+        # 再合并用例覆盖的请求头（会覆盖同名字段）
+        if self.testcase.headers_override:
+            headers.update(self.testcase.headers_override)
         
         # 替换变量
         headers = {k: self._replace_variables(str(v)) for k, v in headers.items()}
@@ -212,16 +225,37 @@ class TestCaseExecutor:
                 # 这种方式会在 _build_headers 中处理
                 return None
         
-        # 如果接口未配置认证，尝试使用全局 Token
+        # 如果接口未配置认证，尝试使用Token（优先级：动态Token > 全局Token）
+        # 注意：全局Token的variables已在__init__中注入，这里只处理认证
+        
+        # 【优化】优先使用动态Token（从测试套件中前置用例提取的）
+        # 判断依据：如果variables中有'token'且不是全局Token的静态值，则认为是动态Token
+        dynamic_token = self.variables.get('token')
+        global_token_static = self.variables.get('_global_token_static')
+        
+        # 如果有动态Token（且与全局Token静态值不同），优先使用动态Token
+        if dynamic_token and dynamic_token != global_token_static:
+            # 使用动态Token（从测试套件中提取的）
+            token_value = self._replace_variables(str(dynamic_token))
+            # 默认使用Bearer类型（如果有全局Token配置，使用其类型）
+            global_token = self._get_global_token()
+            if global_token:
+                if global_token.auth_type == 'bearer':
+                    return ('Bearer', token_value)
+                elif global_token.auth_type == 'drf_token':
+                    return ('Token', token_value)
+                elif global_token.auth_type == 'header':
+                    # Header 类型在 _build_headers 中处理
+                    return None
+            else:
+                # 没有全局Token配置，默认使用Bearer
+                return ('Bearer', token_value)
+        
+        # 如果没有动态Token，使用全局Token的静态值
         global_token = self._get_global_token()
         if global_token:
             token_value = global_token.token
             # 替换 Token 中的变量
-            if global_token.variables:
-                # 合并全局 Token 的变量到执行器变量中
-                for key, value in global_token.variables.items():
-                    if key not in self.variables:
-                        self.variables[key] = value
             token_value = self._replace_variables(token_value)
             
             if global_token.auth_type == 'bearer':
@@ -461,8 +495,12 @@ class TestCaseExecutor:
             # 脚本执行错误，记录但不中断测试
             print(f"后置脚本执行错误: {str(e)}")
     
-    def _execute_environment_pre_hook(self) -> None:
-        """执行环境前置钩子函数"""
+    def _execute_environment_pre_hook(self, request_info: dict = None) -> None:
+        """执行环境前置钩子函数
+        
+        Args:
+            request_info: 当前请求信息，包含 method, url, path, body 等
+        """
         if not self.environment or not self.environment.pre_hook:
             return
         
@@ -484,6 +522,7 @@ class TestCaseExecutor:
             'testcase': self.testcase,
             'api': self.api,
             'environment': self.environment,
+            'request_info': request_info or {},  # 传入请求信息
             'set_variable': lambda name, value: self.variables.update({name: value}),
             'get_variable': lambda name: self.variables.get(name),
             'print': print,
@@ -496,6 +535,13 @@ class TestCaseExecutor:
                 'type': type, 'isinstance': isinstance, 'hasattr': hasattr,
                 'getattr': getattr, 'setattr': setattr, 'round': round,
                 'abs': abs, 'min': min, 'max': max, 'sum': sum,
+                # 添加签名所需的模块
+                'hmac': __import__('hmac'),
+                'hashlib': __import__('hashlib'),
+                'base64': __import__('base64'),
+                'time': __import__('time'),
+                'json': __import__('json'),
+                'uuid': __import__('uuid'),
             }
             exec(script, {'__builtins__': safe_builtins}, context)
         except Exception as e:
@@ -818,14 +864,40 @@ class TestCaseExecutor:
     def execute(self) -> Dict[str, Any]:
         """执行测试用例"""
         try:
-            # 执行环境前置钩子
-            self._execute_environment_pre_hook()
+            # 先构建基础请求参数（环境钩子可能需要这些信息）
+            url = self._build_url()
+            
+            # 方案A：优先级：用例覆盖 > 接口定义
+            if self.testcase.body_override:
+                body = self._replace_variables_in_dict(self.testcase.body_override)
+            else:
+                body = self._replace_variables_in_dict(self.api.body or {})
+            
+            # 提取path（去掉域名和context-path）
+            import re
+            from urllib.parse import urlparse
+            parsed_url = urlparse(url)
+            path = parsed_url.path
+            # 去掉常见的context-path
+            path = re.sub(r'^/crex-java', '', path)
+            
+            # 准备请求信息供环境钩子使用
+            request_info = {
+                'method': self.api.method,
+                'url': url,
+                'path': path,
+                'body': body,
+                'api': self.api,
+                'testcase': self.testcase
+            }
+            
+            # 执行环境前置钩子（传入请求信息）
+            self._execute_environment_pre_hook(request_info)
             
             # 执行前置脚本
             self._execute_pre_script()
             
-            # 构建请求参数
-            url = self._build_url()
+            # 重新构建headers（因为环境钩子可能设置了签名变量）
             headers = self._build_headers()
             
             # 方案A：优先级：用例覆盖 > 接口定义
@@ -876,16 +948,23 @@ class TestCaseExecutor:
                     token_format = auth_config.get('format', 'Bearer')  # 默认 Bearer 格式
                     headers[header_name] = f'{token_format} {token}' if token_format else token
             
-            # 处理全局 Token 的 Header 类型
+            # 处理全局 Token 的 Header 类型（优先使用动态Token）
+            # 注意：全局Token的variables已在__init__中注入，这里只处理认证Header
             if not self.api.auth_type or (self.api.auth_type and self.api.auth_type.lower() != 'header'):
                 global_token = self._get_global_token()
                 if global_token and global_token.auth_type == 'header':
-                    token_value = global_token.token
-                    if global_token.variables:
-                        for key, value in global_token.variables.items():
-                            if key not in self.variables:
-                                self.variables[key] = value
-                    token_value = self._replace_variables(token_value)
+                    # 【优化】优先使用动态Token
+                    dynamic_token = self.variables.get('token')
+                    global_token_static = self.variables.get('_global_token_static')
+                    
+                    if dynamic_token and dynamic_token != global_token_static:
+                        # 使用动态Token
+                        token_value = self._replace_variables(str(dynamic_token))
+                    else:
+                        # 使用全局Token的静态值
+                        token_value = global_token.token
+                        token_value = self._replace_variables(token_value)
+                    
                     token_format = global_token.token_format or 'Bearer'
                     header_name = global_token.header_name or 'Authorization'
                     headers[header_name] = f'{token_format} {token_value}' if token_format else token_value

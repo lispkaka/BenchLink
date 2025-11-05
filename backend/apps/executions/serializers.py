@@ -27,18 +27,40 @@ class ExecutionSerializer(serializers.ModelSerializer):
         read_only_fields = ['id', 'created_at']
 
     def get_children(self, obj):
-        """获取子执行记录（通过parent字段）"""
+        """获取子执行记录（通过parent字段），按套件中的用例顺序排列"""
+        from apps.testsuites.models import TestSuiteTestCase
+        
         # 使用prefetch_related预加载的children，或查询children
         if hasattr(obj, 'children'):
             # 如果已经预加载
             children = obj.children.all()
         else:
             # 如果没有预加载，直接查询
-            children = Execution.objects.filter(parent=obj).order_by('created_at')
+            children = Execution.objects.filter(parent=obj)
         
-        if children.exists():
+        # 如果是套件执行，按照用例在套件中的顺序排列
+        if obj.testsuite and not obj.testcase:
+            # 获取当前套件的用例顺序映射
+            suite_testcase_order = {}
+            suite_relations = TestSuiteTestCase.objects.filter(testsuite=obj.testsuite)
+            for relation in suite_relations:
+                suite_testcase_order[relation.testcase_id] = relation.order
+            
+            # 转换为列表并排序
+            children_list = list(children.select_related('testcase'))
+            children_list.sort(key=lambda x: (
+                suite_testcase_order.get(x.testcase_id, 9999),  # 如果找不到order，放到最后
+                x.id  # 相同order时按id排序
+            ))
+            
             # 使用简化版序列化器（避免递归）
-            return SimpleExecutionSerializer(children, many=True).data
+            return SimpleExecutionSerializer(children_list, many=True).data
+        else:
+            # 其他情况按创建时间排序
+            children = children.order_by('created_at')
+            if children.exists():
+                return SimpleExecutionSerializer(children, many=True).data
+        
         return []
     
     def get_children_count(self, obj):
@@ -50,6 +72,8 @@ class ExecutionSerializer(serializers.ModelSerializer):
 
 class SimpleExecutionSerializer(serializers.ModelSerializer):
     """简化的执行记录序列化器（用于子记录，避免递归）"""
+    testcase = TestCaseSerializer(read_only=True)
+    
     class Meta:
         model = Execution
         fields = ['id', 'name', 'testcase', 'status', 'start_time', 'end_time', 'duration', 'result', 'execution_type']

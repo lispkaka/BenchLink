@@ -64,10 +64,18 @@
             <span>全局 Token</span>
           </el-menu-item>
         </el-sub-menu>
-        <el-menu-item index="/settings">
-          <el-icon><User /></el-icon>
-          <span>设置</span>
-        </el-menu-item>
+        <el-sub-menu index="/system">
+          <template #title>
+            <el-icon><Tools /></el-icon>
+            <span>系统管理</span>
+          </template>
+          <el-menu-item index="/system/users">
+            <span>用户管理</span>
+          </el-menu-item>
+          <el-menu-item index="/system/notifications">
+            <span>通知配置</span>
+          </el-menu-item>
+        </el-sub-menu>
       </el-menu>
     </el-aside>
     <el-container>
@@ -87,7 +95,7 @@
 import { computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useUserStore } from '../store'
-import { DataBoard, Folder, Link, Document, Collection, VideoPlay, Clock, Setting, User, DataAnalysis } from '@element-plus/icons-vue'
+import { DataBoard, Folder, Link, Document, Collection, VideoPlay, Clock, Setting, Tools, DataAnalysis } from '@element-plus/icons-vue'
 
 const route = useRoute()
 const router = useRouter()

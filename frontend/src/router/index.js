@@ -13,7 +13,8 @@ import PerformanceTaskList from '../views/performance/PerformanceTaskList.vue'
 import PerformanceTaskCreate from '../views/performance/PerformanceTaskCreate.vue'
 import PerformanceScripts from '../views/performance/PerformanceScripts.vue'
 import PerformanceReports from '../views/performance/PerformanceReports.vue'
-import Settings from '../views/Settings.vue'
+import UserManagement from '../views/UserManagement.vue'
+import NotificationSettings from '../views/Settings.vue'
 
 const routes = [
   {
@@ -82,9 +83,14 @@ const routes = [
         component: PerformanceReports
       },
       {
-        path: 'settings',
-        name: 'Settings',
-        component: Settings
+        path: 'system/users',
+        name: 'UserManagement',
+        component: UserManagement
+      },
+      {
+        path: 'system/notifications',
+        name: 'NotificationSettings',
+        component: NotificationSettings
       }
     ]
   }

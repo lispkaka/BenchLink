@@ -4,7 +4,7 @@ from rest_framework.response import Response
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
 from django.utils import timezone
-from .models import TestSuite
+from .models import TestSuite, TestSuiteTestCase
 from .serializers import TestSuiteSerializer
 from apps.testcases.executor import TestCaseExecutor
 from apps.executions.models import Execution
@@ -253,6 +253,14 @@ class TestSuiteViewSet(viewsets.ModelViewSet):
         suite_execution.duration = suite_duration
         suite_execution.save()
         
+        # 发送通知
+        try:
+            from apps.notifications.service import send_execution_notification
+            send_execution_notification(suite_execution)
+        except Exception as e:
+            # 通知失败不影响执行结果
+            print(f'发送通知失败: {str(e)}')
+        
         return Response({
             'execution_id': suite_execution.id,
             'status': suite_execution.status,
@@ -266,6 +274,48 @@ class TestSuiteViewSet(viewsets.ModelViewSet):
             'case_results': case_results,
             'message': '套件执行完成'
         }, status=status.HTTP_200_OK)
+    
+    @action(detail=True, methods=['post'])
+    def reorder_testcases(self, request, pk=None):
+        """批量更新测试用例顺序"""
+        testsuite = self.get_object()
+        testcase_orders = request.data.get('testcase_orders', [])
+        
+        if not testcase_orders:
+            return Response({
+                'error': '请提供测试用例顺序列表'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        # 验证数据格式: [{"testcase_id": 1, "order": 0}, ...]
+        if not isinstance(testcase_orders, list):
+            return Response({
+                'error': '数据格式错误，应为列表'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        try:
+            # 批量更新order字段
+            for item in testcase_orders:
+                testcase_id = item.get('testcase_id')
+                order = item.get('order')
+                
+                if testcase_id is None or order is None:
+                    continue
+                
+                # 更新TestSuiteTestCase的order字段
+                TestSuiteTestCase.objects.filter(
+                    testsuite=testsuite,
+                    testcase_id=testcase_id
+                ).update(order=order)
+            
+            return Response({
+                'message': '测试用例顺序更新成功',
+                'count': len(testcase_orders)
+            }, status=status.HTTP_200_OK)
+            
+        except Exception as e:
+            return Response({
+                'error': f'更新失败: {str(e)}'
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
 

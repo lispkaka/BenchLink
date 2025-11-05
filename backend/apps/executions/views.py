@@ -30,7 +30,9 @@ class ExecutionViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         project_id = self.request.query_params.get('project_id')
-        show_all = self.request.query_params.get('show_all', 'false').lower() == 'true'
+        type_filter = self.request.query_params.get('type')  # suite/testcase/parameterized
+        status_filter = self.request.query_params.get('status')
+        search = self.request.query_params.get('search')
         
         queryset = Execution.objects.all()
         
@@ -38,10 +40,29 @@ class ExecutionViewSet(viewsets.ModelViewSet):
         if project_id:
             queryset = queryset.filter(project_id=project_id)
         
+        # 如果type存在，按执行类型过滤
+        if type_filter:
+            if type_filter == 'suite':
+                # 套件执行：execution_type='suite' 且没有testcase（只有testsuite）
+                queryset = queryset.filter(execution_type='suite', testsuite__isnull=False, testcase__isnull=True)
+            elif type_filter == 'testcase':
+                # 用例执行：有testcase的执行记录
+                queryset = queryset.filter(testcase__isnull=False)
+            elif type_filter == 'parameterized':
+                # 参数化执行：execution_type='parameterized'
+                queryset = queryset.filter(execution_type='parameterized')
+        
+        # 如果status存在，过滤状态
+        if status_filter:
+            queryset = queryset.filter(status=status_filter)
+        
+        # 如果search存在，按名称模糊搜索
+        if search:
+            queryset = queryset.filter(name__icontains=search)
+        
         # 默认只显示父记录（parent=null），这样参数化和套件执行只显示一行
-        # show_all=true时显示所有记录（包括子记录）
         # 详情视图（retrieve）始终不过滤，允许查看所有记录
-        if not show_all and self.action != 'retrieve':
+        if self.action != 'retrieve':
             queryset = queryset.filter(parent__isnull=True)  # 只显示父记录
         
         # 预加载子记录（用于展开显示）

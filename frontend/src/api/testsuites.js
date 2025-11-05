@@ -24,4 +24,8 @@ export const executeTestSuite = (id) => {
   return api.post(`/testsuites/testsuites/${id}/execute/`)
 }
 
+export const reorderTestCases = (id, testcase_orders) => {
+  return api.post(`/testsuites/testsuites/${id}/reorder_testcases/`, { testcase_orders })
+}
+
 

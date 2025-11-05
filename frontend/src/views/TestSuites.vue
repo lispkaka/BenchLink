@@ -75,7 +75,9 @@
         </el-table-column>
         <el-table-column label="用例数量" width="120">
           <template #default="{ row }">
-            <el-tag type="info" size="small">{{ row.testcases?.length || 0 }} 个</el-tag>
+            <el-tag type="info" size="small">
+              {{ row.testcases_with_order?.length || row.testcases?.length || 0 }} 个
+            </el-tag>
           </template>
         </el-table-column>
         <el-table-column label="测试环境" width="120">
@@ -161,21 +163,76 @@
             </el-form-item>
           </el-col>
         </el-row>
-        <el-form-item label="测试用例" prop="testcase_ids">
-          <el-select
-            v-model="form.testcase_ids"
-            multiple
-            placeholder="请选择测试用例"
-            style="width: 100%"
-            filterable
-          >
-            <el-option
-              v-for="testcase in testcases"
-              :key="testcase.id"
-              :label="testcase.name"
-              :value="testcase.id"
-            />
-          </el-select>
+        <el-form-item label="测试用例" prop="testcases_order">
+          <div class="testcases-management">
+            <!-- 已选测试用例表格 -->
+            <el-table
+              :data="form.testcases_order"
+              border
+              style="width: 100%; margin-bottom: 10px"
+              max-height="300"
+            >
+              <el-table-column label="" width="50" align="center">
+                <template #default>
+                  <span class="drag-handle">⋮⋮</span>
+                </template>
+              </el-table-column>
+              <el-table-column label="执行顺序" width="100" align="center">
+                <template #default="{ row, $index }">
+                  <el-input-number
+                    v-model="row.order"
+                    :min="1"
+                    :max="form.testcases_order.length"
+                    size="small"
+                    @change="handleOrderChange"
+                  />
+                </template>
+              </el-table-column>
+              <el-table-column label="用例名称" min-width="200">
+                <template #default="{ row }">
+                  {{ getTestCaseName(row.id) }}
+                </template>
+              </el-table-column>
+              <el-table-column label="操作" width="80" align="center">
+                <template #default="{ $index }">
+                  <el-button
+                    type="danger"
+                    size="small"
+                    link
+                    @click="removeTestCase($index)"
+                  >
+                    移除
+                  </el-button>
+                </template>
+              </el-table-column>
+            </el-table>
+            
+            <!-- 搜索并添加测试用例 -->
+            <div class="add-testcase-row">
+              <el-select
+                v-model="selectedTestCaseToAdd"
+                placeholder="搜索并添加测试用例..."
+                style="width: 70%"
+                filterable
+                clearable
+              >
+                <el-option
+                  v-for="testcase in availableTestCases"
+                  :key="testcase.id"
+                  :label="testcase.name"
+                  :value="testcase.id"
+                />
+              </el-select>
+              <el-button
+                type="success"
+                style="width: 28%"
+                @click="addTestCase"
+                :disabled="!selectedTestCaseToAdd"
+              >
+                + 添加用例
+              </el-button>
+            </div>
+          </div>
         </el-form-item>
         <el-form-item label="套件描述">
           <el-input
@@ -204,11 +261,12 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, nextTick, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Search, Plus } from '@element-plus/icons-vue'
-import { getTestSuites, createTestSuite, updateTestSuite, deleteTestSuite, executeTestSuite } from '../api/testsuites'
+import { getTestSuites, createTestSuite, updateTestSuite, deleteTestSuite, executeTestSuite, reorderTestCases } from '../api/testsuites'
 import api from '../api/index'
+import Sortable from 'sortablejs'
 
 const loading = ref(false)
 const searchQuery = ref('')
@@ -239,16 +297,36 @@ const form = ref({
   name: '',
   project: null,
   environment: null,
-  testcase_ids: [],
+  testcases_order: [],  // 格式：[{id: 1, order: 1}, {id: 2, order: 2}]
   description: '',
   is_active: true
 })
 
+const selectedTestCaseToAdd = ref(null)
+let sortableInstance = null  // Sortable实例
+
 const formRules = {
   name: [{ required: true, message: '请输入套件名称', trigger: 'blur' }],
   project: [{ required: true, message: '请选择所属项目', trigger: 'change' }],
-  testcase_ids: [{ required: true, message: '请至少选择一个测试用例', trigger: 'change' }]
+  testcases_order: [{ 
+    required: true, 
+    message: '请至少添加一个测试用例', 
+    trigger: 'change',
+    validator: (rule, value, callback) => {
+      if (!value || value.length === 0) {
+        callback(new Error('请至少添加一个测试用例'))
+      } else {
+        callback()
+      }
+    }
+  }]
 }
+
+// 获取可用的测试用例（排除已添加的）
+const availableTestCases = computed(() => {
+  const selectedIds = form.value.testcases_order.map(tc => tc.id)
+  return testcases.value.filter(tc => !selectedIds.includes(tc.id))
+})
 
 const filteredTestSuites = computed(() => {
   if (!searchQuery.value) return testSuites.value
@@ -293,10 +371,118 @@ const loadProjects = async () => {
 
 const loadTestCases = async () => {
   try {
-    const response = await api.get('/testcases/testcases/')
+    const response = await api.get('/testcases/testcases/', {
+      params: { page_size: 10000 }  // 加载所有测试用例
+    })
     testcases.value = Array.isArray(response) ? response : response.results || []
   } catch (error) {
     console.error('加载测试用例列表失败:', error)
+  }
+}
+
+// 根据ID获取测试用例名称
+const getTestCaseName = (id) => {
+  const testcase = testcases.value.find(tc => tc.id === id)
+  return testcase ? testcase.name : '未知用例'
+}
+
+// 添加测试用例
+const addTestCase = () => {
+  if (!selectedTestCaseToAdd.value) return
+  
+  // 添加到列表末尾，order为当前长度+1
+  form.value.testcases_order.push({
+    id: selectedTestCaseToAdd.value,
+    order: form.value.testcases_order.length + 1
+  })
+  
+  // 清空选择
+  selectedTestCaseToAdd.value = null
+  
+  // 重新初始化拖拽
+  nextTick(() => initSortable())
+}
+
+// 移除测试用例
+const removeTestCase = (index) => {
+  form.value.testcases_order.splice(index, 1)
+  // 重新编号
+  updateOrderNumbers()
+  
+  // 重新初始化拖拽
+  nextTick(() => initSortable())
+}
+
+// 更新所有顺序号（使其连续）
+const updateOrderNumbers = () => {
+  form.value.testcases_order.forEach((item, index) => {
+    item.order = index + 1
+  })
+}
+
+// 初始化拖拽排序
+const initSortable = async () => {
+  await nextTick()
+  
+  // 销毁旧实例
+  if (sortableInstance) {
+    sortableInstance.destroy()
+  }
+  
+  // 找到表格的tbody元素
+  const tableEl = document.querySelector('.testcases-management .el-table__body tbody')
+  if (!tableEl) return
+  
+  // 创建Sortable实例
+  sortableInstance = Sortable.create(tableEl, {
+    handle: '.drag-handle',  // 拖拽句柄
+    animation: 150,
+    onEnd: (evt) => {
+      const { oldIndex, newIndex } = evt
+      if (oldIndex === newIndex) return
+      
+      // 更新数组顺序
+      const movedItem = form.value.testcases_order.splice(oldIndex, 1)[0]
+      form.value.testcases_order.splice(newIndex, 0, movedItem)
+      
+      // 重新编号
+      updateOrderNumbers()
+      
+      // 如果是编辑模式，保存新顺序
+      if (form.value.id) {
+        saveTestCasesOrder()
+      }
+    }
+  })
+}
+
+// 保存测试用例顺序到后端
+const saveTestCasesOrder = async () => {
+  if (!form.value.id) return
+  
+  try {
+    const testcase_orders = form.value.testcases_order.map((item) => ({
+      testcase_id: item.id,
+      order: item.order
+    }))
+    
+    await reorderTestCases(form.value.id, testcase_orders)
+    ElMessage.success('顺序已保存')
+  } catch (error) {
+    console.error('保存顺序失败:', error)
+    ElMessage.error('保存顺序失败')
+  }
+}
+
+// 手动修改顺序号后，重新排序
+const handleOrderChange = () => {
+  // 按order字段排序
+  form.value.testcases_order.sort((a, b) => a.order - b.order)
+  // 重新编号
+  updateOrderNumbers()
+  // 如果是编辑模式，保存新顺序
+  if (form.value.id) {
+    saveTestCasesOrder()
   }
 }
 
@@ -312,7 +498,10 @@ const loadEnvironments = async () => {
 const calculateStats = () => {
   const total = testSuites.value.length
   const active = testSuites.value.filter((t) => t.is_active).length
-  const totalCases = testSuites.value.reduce((sum, t) => sum + (t.testcases?.length || 0), 0)
+  const totalCases = testSuites.value.reduce((sum, t) => {
+    const count = t.testcases_with_order?.length || t.testcases?.length || 0
+    return sum + count
+  }, 0)
   const avgCases = total > 0 ? Math.round(totalCases / total) : 0
 
   stats.value = { total, active, totalCases, avgCases }
@@ -325,25 +514,49 @@ const handleCreate = () => {
     name: '',
     project: null,
     environment: null,
-    testcase_ids: [],
+    testcases_order: [],
     description: '',
     is_active: true
   }
+  selectedTestCaseToAdd.value = null
   dialogVisible.value = true
+  
+  // 初始化拖拽
+  nextTick(() => initSortable())
 }
 
 const handleEdit = (row) => {
   dialogTitle.value = '编辑套件'
+  
+  // 将testcases_with_order转换为testcases_order格式
+  let testcasesOrder = []
+  if (row.testcases_with_order && Array.isArray(row.testcases_with_order)) {
+    testcasesOrder = row.testcases_with_order.map(tc => ({
+      id: tc.id,
+      order: tc.order || 0
+    }))
+  } else if (row.testcases && Array.isArray(row.testcases)) {
+    // 兼容旧格式（没有order字段）
+    testcasesOrder = row.testcases.map((tc, index) => ({
+      id: tc.id,
+      order: index + 1
+    }))
+  }
+  
   form.value = {
     id: row.id,
     name: row.name,
     project: row.project?.id || row.project,
     environment: row.environment?.id || row.environment,
-    testcase_ids: row.testcases?.map((tc) => tc.id) || [],
+    testcases_order: testcasesOrder,
     description: row.description || '',
     is_active: row.is_active
   }
+  selectedTestCaseToAdd.value = null
   dialogVisible.value = true
+  
+  // 初始化拖拽
+  nextTick(() => initSortable())
 }
 
 const handleSubmit = async () => {
@@ -353,16 +566,15 @@ const handleSubmit = async () => {
     if (valid) {
       submitting.value = true
       try {
-        // 构建提交数据，转换字段名
+        // 构建提交数据
         const submitData = {
-          ...form.value,
+          name: form.value.name,
           project_id: form.value.project,
           environment_id: form.value.environment || null,
-          project: undefined,
-          environment: undefined
+          testcases_order: form.value.testcases_order,  // 发送带order的用例列表
+          description: form.value.description,
+          is_active: form.value.is_active
         }
-        delete submitData.project
-        delete submitData.environment
         
         if (form.value.id) {
           await updateTestSuite(form.value.id, submitData)
@@ -589,5 +801,27 @@ onMounted(() => {
 .fade-up-leave-to {
   opacity: 0;
   transform: translateY(-10px);
+}
+
+/* 测试用例管理样式 */
+.testcases-management {
+  width: 100%;
+}
+
+.drag-handle {
+  cursor: move;
+  color: #999;
+  font-size: 18px;
+  user-select: none;
+}
+
+.drag-handle:hover {
+  color: #333;
+}
+
+.add-testcase-row {
+  display: flex;
+  gap: 10px;
+  align-items: center;
 }
 </style>

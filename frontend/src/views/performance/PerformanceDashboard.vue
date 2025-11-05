@@ -161,7 +161,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { use } from 'echarts/core'
 import { CanvasRenderer } from 'echarts/renderers'
@@ -217,8 +217,6 @@ const systemResources = ref({
 const responseTimeHistory = ref([])
 const throughputHistory = ref([])
 const distributionData = ref([0, 0, 0, 0, 0])
-
-let updateTimer = null
 
 const successRate = computed(() => {
   if (metrics.value.total_samples === 0) return 100
@@ -514,17 +512,6 @@ const formatDateTime = (dateString) => {
 onMounted(() => {
   // 加载最新性能测试数据
   loadLatestPerformanceData()
-  
-  // 定期刷新数据（每30秒）
-  updateTimer = setInterval(() => {
-    loadLatestPerformanceData()
-  }, 30000)
-})
-
-onUnmounted(() => {
-  if (updateTimer) {
-    clearInterval(updateTimer)
-  }
 })
 </script>
 

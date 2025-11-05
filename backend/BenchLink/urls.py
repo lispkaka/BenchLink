@@ -22,6 +22,7 @@ def api_root(request):
             'testsuites': '/api/testsuites/',
             'executions': '/api/executions/',
             'scheduler': '/api/scheduler/',
+            'notifications': '/api/notifications/',
         },
         'frontend': 'http://localhost:5173'
     })
@@ -37,6 +38,7 @@ urlpatterns = [
     path('api/testsuites/', include('apps.testsuites.urls')),
     path('api/executions/', include('apps.executions.urls')),
     path('api/scheduler/', include('apps.scheduler.urls')),
+    path('api/notifications/', include('apps.notifications.urls')),
 ]
 
 if settings.DEBUG:

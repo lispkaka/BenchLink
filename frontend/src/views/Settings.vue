@@ -3,327 +3,345 @@
     <!-- 顶部导航栏 -->
     <header class="settings-header">
       <div class="header-left">
-        <h1 class="title">系统设置</h1>
-        <p class="subtitle">管理个人账户和系统配置</p>
+        <h1 class="title">通知配置</h1>
+        <p class="subtitle">配置测试执行完成后的通知告警渠道</p>
+      </div>
+      <div class="header-right">
+        <el-button type="primary" @click="handleCreate">
+          <el-icon><Plus /></el-icon>
+          新建通知渠道
+        </el-button>
       </div>
     </header>
 
-    <!-- 设置内容 -->
-    <div class="settings-content">
-      <!-- 用户信息卡片 -->
-      <el-card class="settings-card" shadow="hover">
+    <!-- 通知渠道列表 -->
+    <el-card class="table-card" shadow="hover">
         <template #header>
           <div class="card-header">
-            <span class="card-title">
-              <el-icon><User /></el-icon>
-              用户信息
-            </span>
+          <span class="card-title">通知渠道配置</span>
+          <span class="card-subtitle">共 {{ channels.length }} 个</span>
           </div>
         </template>
-        <el-form ref="userFormRef" :model="userForm" :rules="userFormRules" label-width="120px">
-          <el-form-item label="用户名" prop="username">
-            <el-input v-model="userForm.username" disabled />
-          </el-form-item>
-          <el-form-item label="邮箱" prop="email">
-            <el-input v-model="userForm.email" placeholder="请输入邮箱" />
-          </el-form-item>
-          <el-form-item label="手机号" prop="phone">
-            <el-input v-model="userForm.phone" placeholder="请输入手机号" />
-          </el-form-item>
-          <el-form-item>
-            <el-button type="primary" @click="handleSaveUser" :loading="saving">
-              保存修改
+
+      <el-table
+        :data="channels"
+        stripe
+        style="width: 100%"
+        v-loading="loading"
+        empty-text="暂无通知渠道"
+      >
+        <el-table-column prop="id" label="ID" width="80" />
+        <el-table-column prop="name" label="渠道名称" min-width="150" />
+        <el-table-column label="渠道类型" width="120">
+          <template #default="{ row }">
+            <el-tag :type="getChannelTagType(row.channel_type)">
+              {{ row.channel_type_display }}
+            </el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="通知规则" width="200">
+          <template #default="{ row }">
+            <el-tag v-if="row.notify_on_success" type="success" size="small" style="margin-right: 4px">成功</el-tag>
+            <el-tag v-if="row.notify_on_failure" type="danger" size="small" style="margin-right: 4px">失败</el-tag>
+            <el-tag v-if="row.notify_on_complete" type="info" size="small">完成</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="状态" width="100">
+          <template #default="{ row }">
+            <el-tag :type="row.is_active ? 'success' : 'info'" size="small">
+              {{ row.is_active ? '启用' : '停用' }}
+            </el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column prop="created_at" label="创建时间" width="180">
+          <template #default="{ row }">
+            {{ formatDate(row.created_at) }}
+          </template>
+        </el-table-column>
+        <el-table-column label="操作" width="220" fixed="right">
+          <template #default="{ row }">
+            <el-button type="primary" size="small" link @click="handleTest(row)">
+              测试
             </el-button>
-            <el-button @click="handleResetUser">重置</el-button>
-          </el-form-item>
-        </el-form>
+            <el-button type="primary" size="small" link @click="handleEdit(row)">
+              编辑
+            </el-button>
+            <el-button type="danger" size="small" link @click="handleDelete(row)">
+              删除
+            </el-button>
+          </template>
+        </el-table-column>
+      </el-table>
       </el-card>
 
-      <!-- 修改密码卡片 -->
-      <el-card class="settings-card" shadow="hover">
-        <template #header>
-          <div class="card-header">
-            <span class="card-title">
-              <el-icon><Lock /></el-icon>
-              修改密码
-            </span>
+    <!-- 创建/编辑对话框 -->
+    <el-dialog
+      v-model="dialogVisible"
+      :title="dialogTitle"
+      width="600px"
+      @close="handleDialogClose"
+    >
+      <el-form ref="formRef" :model="form" :rules="formRules" label-width="120px">
+        <el-form-item label="渠道名称" prop="name">
+          <el-input v-model="form.name" placeholder="例如：测试通知" />
+        </el-form-item>
+        
+        <el-form-item label="渠道类型" prop="channel_type">
+          <el-select v-model="form.channel_type" placeholder="请选择渠道类型" style="width: 100%">
+            <el-option label="企业微信" value="wecom">
+              <span>企业微信</span>
+            </el-option>
+            <el-option label="钉钉" value="dingtalk">
+              <span>钉钉</span>
+            </el-option>
+            <el-option label="飞书" value="feishu" disabled>
+              <span>飞书（开发中）</span>
+            </el-option>
+            <el-option label="Telegram" value="telegram" disabled>
+              <span>Telegram（开发中）</span>
+            </el-option>
+          </el-select>
+        </el-form-item>
+        
+        <el-form-item label="Webhook URL" prop="webhook_url">
+          <el-input
+            v-model="form.webhook_url"
+            type="textarea"
+            :rows="3"
+            placeholder="请输入机器人的Webhook URL"
+          />
+          <div class="form-tip">
+            <el-link type="primary" href="https://developer.work.weixin.qq.com/document/path/91770" target="_blank" v-if="form.channel_type === 'wecom'">
+              如何获取企业微信Webhook？
+            </el-link>
+            <el-link type="primary" href="https://open.dingtalk.com/document/robots/custom-robot-access" target="_blank" v-if="form.channel_type === 'dingtalk'">
+              如何获取钉钉Webhook？
+            </el-link>
           </div>
-        </template>
-        <el-form ref="passwordFormRef" :model="passwordForm" :rules="passwordFormRules" label-width="120px">
-          <el-form-item label="当前密码" prop="oldPassword">
-            <el-input
-              v-model="passwordForm.oldPassword"
-              type="password"
-              placeholder="请输入当前密码"
-              show-password
-            />
           </el-form-item>
-          <el-form-item label="新密码" prop="newPassword">
-            <el-input
-              v-model="passwordForm.newPassword"
-              type="password"
-              placeholder="请输入新密码"
-              show-password
-            />
+        
+        <el-form-item label="加签密钥" v-if="form.channel_type === 'dingtalk'">
+          <el-input
+            v-model="form.secret"
+            placeholder="钉钉机器人的加签密钥（可选）"
+          />
+          <div class="form-tip">如果钉钉机器人启用了加签，请填写密钥</div>
           </el-form-item>
-          <el-form-item label="确认新密码" prop="confirmPassword">
-            <el-input
-              v-model="passwordForm.confirmPassword"
-              type="password"
-              placeholder="请再次输入新密码"
-              show-password
-            />
+        
+        <el-form-item label="通知规则">
+          <el-checkbox v-model="form.notify_on_success">成功时通知</el-checkbox>
+          <el-checkbox v-model="form.notify_on_failure">失败时通知</el-checkbox>
+          <el-checkbox v-model="form.notify_on_complete">完成时通知</el-checkbox>
           </el-form-item>
-          <el-form-item>
-            <el-button type="primary" @click="handleChangePassword" :loading="changingPassword">
-              修改密码
-            </el-button>
-            <el-button @click="handleResetPassword">重置</el-button>
+        
+        <el-form-item label="状态">
+          <el-switch
+            v-model="form.is_active"
+            active-text="启用"
+            inactive-text="停用"
+          />
           </el-form-item>
         </el-form>
-      </el-card>
-
-      <!-- 系统配置卡片 -->
-      <el-card class="settings-card" shadow="hover">
-        <template #header>
-          <div class="card-header">
-            <span class="card-title">
-              <el-icon><Setting /></el-icon>
-              系统配置
-            </span>
-          </div>
+      
+      <template #footer>
+        <el-button @click="dialogVisible = false">取消</el-button>
+        <el-button type="primary" @click="handleSubmit" :loading="submitting">
+          确定
+        </el-button>
         </template>
-        <el-form :model="systemForm" label-width="120px">
-          <el-form-item label="主题模式">
-            <el-radio-group v-model="systemForm.theme">
-              <el-radio label="light">浅色</el-radio>
-              <el-radio label="dark">深色</el-radio>
-              <el-radio label="auto">跟随系统</el-radio>
-            </el-radio-group>
-          </el-form-item>
-          <el-form-item label="语言设置">
-            <el-select v-model="systemForm.language" style="width: 200px">
-              <el-option label="简体中文" value="zh-CN" />
-              <el-option label="English" value="en-US" />
-            </el-select>
-          </el-form-item>
-          <el-form-item label="自动保存">
-            <el-switch v-model="systemForm.autoSave" />
-            <span style="margin-left: 10px; color: #909399; font-size: 12px">
-              编辑内容时自动保存
-            </span>
-          </el-form-item>
-          <el-form-item>
-            <el-button type="primary" @click="handleSaveSystem">
-              保存配置
-            </el-button>
-          </el-form-item>
-        </el-form>
-      </el-card>
-
-      <!-- 关于卡片 -->
-      <el-card class="settings-card" shadow="hover">
-        <template #header>
-          <div class="card-header">
-            <span class="card-title">
-              <el-icon><InfoFilled /></el-icon>
-              关于
-            </span>
-          </div>
-        </template>
-        <div class="about-content">
-          <div class="about-item">
-            <span class="about-label">应用名称：</span>
-            <span class="about-value">BenchLink 接口测试平台</span>
-          </div>
-          <div class="about-item">
-            <span class="about-label">版本号：</span>
-            <span class="about-value">v1.0.0</span>
-          </div>
-          <div class="about-item">
-            <span class="about-label">开发团队：</span>
-            <span class="about-value">BenchLink Team</span>
-          </div>
-          <div class="about-item">
-            <span class="about-label">许可证：</span>
-            <span class="about-value">MIT License</span>
-          </div>
-        </div>
-      </el-card>
-    </div>
+    </el-dialog>
   </div>
 </template>
 
 <script setup>
-import { ref, onMounted, watch } from 'vue'
-import { ElMessage } from 'element-plus'
-import { User, Lock, Setting, InfoFilled } from '@element-plus/icons-vue'
-import { getCurrentUser } from '../api/users'
-import api from '../api/index'
-import { useThemeStore } from '../store/theme'
+import { ref, onMounted } from 'vue'
+import { ElMessage, ElMessageBox } from 'element-plus'
+import { Plus } from '@element-plus/icons-vue'
+import {
+  getNotificationChannels,
+  createNotificationChannel,
+  updateNotificationChannel,
+  deleteNotificationChannel,
+  testNotificationChannel
+} from '../api/notifications'
 
-const saving = ref(false)
-const changingPassword = ref(false)
-const userFormRef = ref(null)
-const passwordFormRef = ref(null)
+const loading = ref(false)
+const channels = ref([])
+const submitting = ref(false)
+const dialogVisible = ref(false)
+const dialogTitle = ref('新建通知渠道')
+const formRef = ref(null)
 
-const userForm = ref({
-  username: '',
-  email: '',
-  phone: ''
+const form = ref({
+  id: null,
+  name: '',
+  channel_type: 'wecom',
+  webhook_url: '',
+  secret: '',
+  notify_on_success: false,
+  notify_on_failure: true,
+  notify_on_complete: false,
+  is_active: true
 })
 
-const originalUserForm = ref({
-  username: '',
-  email: '',
-  phone: ''
-})
-
-const userFormRules = {
-  email: [
-    { type: 'email', message: '请输入正确的邮箱地址', trigger: 'blur' }
-  ],
-  phone: [
-    { pattern: /^1[3-9]\d{9}$/, message: '请输入正确的手机号', trigger: 'blur' }
+const formRules = {
+  name: [{ required: true, message: '请输入渠道名称', trigger: 'blur' }],
+  channel_type: [{ required: true, message: '请选择渠道类型', trigger: 'change' }],
+  webhook_url: [
+    { required: true, message: '请输入Webhook URL', trigger: 'blur' },
+    { type: 'url', message: '请输入有效的URL', trigger: 'blur' }
   ]
 }
 
-const passwordForm = ref({
-  oldPassword: '',
-  newPassword: '',
-  confirmPassword: ''
-})
-
-const validateConfirmPassword = (rule, value, callback) => {
-  if (value !== passwordForm.value.newPassword) {
-    callback(new Error('两次输入的密码不一致'))
-  } else {
-    callback()
-  }
-}
-
-const passwordFormRules = {
-  oldPassword: [
-    { required: true, message: '请输入当前密码', trigger: 'blur' }
-  ],
-  newPassword: [
-    { required: true, message: '请输入新密码', trigger: 'blur' },
-    { min: 6, message: '密码长度至少6位', trigger: 'blur' }
-  ],
-  confirmPassword: [
-    { required: true, message: '请确认新密码', trigger: 'blur' },
-    { validator: validateConfirmPassword, trigger: 'blur' }
-  ]
-}
-
-const themeStore = useThemeStore()
-
-const systemForm = ref({
-  theme: themeStore.theme,
-  language: themeStore.language,
-  autoSave: true
-})
-
-// 监听主题变化，立即应用
-watch(() => systemForm.value.theme, (newTheme) => {
-  themeStore.setTheme(newTheme)
-})
-
-// 监听语言变化，立即应用
-watch(() => systemForm.value.language, (newLanguage) => {
-  themeStore.setLanguage(newLanguage)
-  ElMessage.success('语言设置已保存，部分组件需要刷新页面后生效')
-})
-
-const loadUserInfo = async () => {
+const loadChannels = async () => {
+  loading.value = true
   try {
-    const user = await getCurrentUser()
-    userForm.value = {
-      username: user.username || '',
-      email: user.email || '',
-      phone: user.phone || ''
-    }
-    originalUserForm.value = { ...userForm.value }
+    const response = await getNotificationChannels()
+    channels.value = Array.isArray(response) ? response : response.results || []
   } catch (error) {
-    console.error('获取用户信息失败', error)
-    ElMessage.error('获取用户信息失败')
+    console.error('加载通知渠道失败:', error)
+    ElMessage.error('加载通知渠道失败')
+  } finally {
+    loading.value = false
   }
 }
 
-const handleSaveUser = async () => {
-  if (!userFormRef.value) return
+const handleCreate = () => {
+  dialogTitle.value = '新建通知渠道'
+  form.value = {
+    id: null,
+    name: '',
+    channel_type: 'wecom',
+    webhook_url: '',
+    secret: '',
+    notify_on_success: false,
+    notify_on_failure: true,
+    notify_on_complete: false,
+    is_active: true
+  }
+  dialogVisible.value = true
+}
 
-  await userFormRef.value.validate(async (valid) => {
-    if (valid) {
-      saving.value = true
-      try {
-        // TODO: 调用更新用户信息的API
-        await api.patch('/users/users/me/', userForm.value)
-        originalUserForm.value = { ...userForm.value }
-        ElMessage.success('保存成功')
-      } catch (error) {
-        console.error('保存用户信息失败', error)
-        ElMessage.error(error.response?.data?.detail || '保存失败')
-      } finally {
-        saving.value = false
+const handleEdit = (row) => {
+  dialogTitle.value = '编辑通知渠道'
+  form.value = {
+    id: row.id,
+    name: row.name,
+    channel_type: row.channel_type,
+    webhook_url: row.webhook_url,
+    secret: row.secret || '',
+    notify_on_success: row.notify_on_success,
+    notify_on_failure: row.notify_on_failure,
+    notify_on_complete: row.notify_on_complete,
+    is_active: row.is_active
+  }
+  dialogVisible.value = true
+}
+
+const handleSubmit = async () => {
+  if (!formRef.value) return
+  
+  await formRef.value.validate(async (valid) => {
+    if (!valid) return
+    
+    submitting.value = true
+    try {
+      const submitData = {
+        name: form.value.name,
+        channel_type: form.value.channel_type,
+        webhook_url: form.value.webhook_url,
+        secret: form.value.secret || '',
+        notify_on_success: form.value.notify_on_success,
+        notify_on_failure: form.value.notify_on_failure,
+        notify_on_complete: form.value.notify_on_complete,
+        is_active: form.value.is_active
       }
+      
+      if (form.value.id) {
+        await updateNotificationChannel(form.value.id, submitData)
+        ElMessage.success('更新成功')
+      } else {
+        await createNotificationChannel(submitData)
+        ElMessage.success('创建成功')
+      }
+      
+      dialogVisible.value = false
+      await loadChannels()
+    } catch (error) {
+      console.error('提交失败:', error)
+      ElMessage.error(error.response?.data?.detail || '操作失败')
+    } finally {
+      submitting.value = false
     }
   })
 }
 
-const handleResetUser = () => {
-  userForm.value = { ...originalUserForm.value }
-  userFormRef.value?.resetFields()
-}
-
-const handleChangePassword = async () => {
-  if (!passwordFormRef.value) return
-
-  await passwordFormRef.value.validate(async (valid) => {
-    if (valid) {
-      changingPassword.value = true
-      try {
-        // TODO: 调用修改密码的API
-        await api.post('/users/users/change-password/', {
-          old_password: passwordForm.value.oldPassword,
-          new_password: passwordForm.value.newPassword
-        })
-        ElMessage.success('密码修改成功')
-        handleResetPassword()
-      } catch (error) {
-        console.error('修改密码失败', error)
-        ElMessage.error(error.response?.data?.detail || '修改密码失败')
-      } finally {
-        changingPassword.value = false
+const handleTest = async (row) => {
+  try {
+    await ElMessageBox.confirm(
+      '将发送一条测试消息到该通知渠道，确定继续吗？',
+      '测试通知',
+      {
+        type: 'info'
       }
+    )
+    
+    loading.value = true
+    await testNotificationChannel(row.id)
+    ElMessage.success('测试消息已发送，请检查通知渠道')
+      } catch (error) {
+    if (error !== 'cancel') {
+      console.error('测试失败:', error)
+      ElMessage.error(error.response?.data?.error || error.response?.data?.detail || '测试失败')
     }
-  })
-}
-
-const handleResetPassword = () => {
-  passwordForm.value = {
-    oldPassword: '',
-    newPassword: '',
-    confirmPassword: ''
+      } finally {
+    loading.value = false
   }
-  passwordFormRef.value?.resetFields()
 }
 
-const handleSaveSystem = () => {
-  // 保存系统配置（主题和语言已在watch中自动保存和应用）
-  themeStore.saveConfig()
-  ElMessage.success('配置已保存')
+const handleDelete = async (row) => {
+  try {
+    await ElMessageBox.confirm(
+      `确定要删除通知渠道 "${row.name}" 吗？`,
+      '确认删除',
+      {
+        type: 'warning'
+      }
+    )
+    
+    await deleteNotificationChannel(row.id)
+    ElMessage.success('删除成功')
+    await loadChannels()
+  } catch (error) {
+    if (error !== 'cancel') {
+      console.error('删除失败:', error)
+      ElMessage.error(error.response?.data?.detail || '删除失败')
+    }
+  }
+}
+
+const handleDialogClose = () => {
+  formRef.value?.resetFields()
+}
+
+const getChannelTagType = (type) => {
+  const types = {
+    wecom: 'success',
+    dingtalk: 'primary',
+    feishu: 'warning',
+    telegram: 'info'
+  }
+  return types[type] || 'info'
+}
+
+const formatDate = (dateString) => {
+  if (!dateString) return '-'
+  const date = new Date(dateString)
+  return date.toLocaleString('zh-CN')
 }
 
 onMounted(() => {
-  loadUserInfo()
-  
-  // 从store加载系统配置
-  systemForm.value = {
-    theme: themeStore.theme,
-    language: themeStore.language,
-    autoSave: JSON.parse(localStorage.getItem('systemConfig') || '{}').autoSave ?? true
-  }
+  loadChannels()
 })
 </script>
 
@@ -335,7 +353,18 @@ onMounted(() => {
 }
 
 .settings-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
   margin-bottom: 24px;
+  background: white;
+  padding: 20px 24px;
+  border-radius: 8px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+}
+
+.header-left {
+  flex: 1;
 }
 
 .title {
@@ -351,18 +380,8 @@ onMounted(() => {
   margin: 0;
 }
 
-.settings-content {
-  display: flex;
-  flex-direction: column;
-  gap: 24px;
-}
-
-.settings-card {
-  transition: transform 0.2s;
-}
-
-.settings-card:hover {
-  transform: translateY(-2px);
+.table-card {
+  margin-bottom: 24px;
 }
 
 .card-header {
@@ -375,32 +394,16 @@ onMounted(() => {
   font-size: 16px;
   font-weight: 600;
   color: #303133;
-  display: flex;
-  align-items: center;
-  gap: 8px;
 }
 
-.about-content {
-  padding: 8px 0;
-}
-
-.about-item {
-  display: flex;
-  padding: 12px 0;
-  border-bottom: 1px solid #f0f0f0;
-}
-
-.about-item:last-child {
-  border-bottom: none;
-}
-
-.about-label {
-  font-weight: 500;
-  color: #606266;
-  min-width: 100px;
-}
-
-.about-value {
+.card-subtitle {
+  font-size: 12px;
   color: #909399;
+}
+
+.form-tip {
+  font-size: 12px;
+  color: #909399;
+  margin-top: 4px;
 }
 </style>

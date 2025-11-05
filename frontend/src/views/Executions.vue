@@ -8,22 +8,26 @@
       </div>
 
       <div class="header-right">
-        <el-select v-model="statusFilter" style="width: 120px" placeholder="状态筛选" clearable>
+        <el-select v-model="typeFilter" style="width: 150px" placeholder="执行类型" clearable @change="handleFilterChange">
           <el-option label="全部" value="" />
+          <el-option label="套件执行" value="suite" />
+          <el-option label="用例执行" value="testcase" />
+          <el-option label="参数化执行" value="parameterized" />
+        </el-select>
+        <el-select v-model="statusFilter" style="width: 120px; margin-left: 12px" placeholder="状态筛选" clearable @change="handleFilterChange">
+          <el-option label="全部状态" value="" />
           <el-option label="待执行" value="pending" />
           <el-option label="执行中" value="running" />
           <el-option label="通过" value="passed" />
           <el-option label="失败" value="failed" />
           <el-option label="跳过" value="skipped" />
         </el-select>
-        <el-checkbox v-model="showAll" @change="handleShowAllChange" style="margin-left: 12px">
-          显示所有记录（包括子用例）
-        </el-checkbox>
         <el-input
           v-model="searchQuery"
           placeholder="搜索执行名称"
           style="width: 200px; margin-left: 12px"
           clearable
+          @input="handleFilterChange"
         >
           <template #prefix>
             <el-icon><Search /></el-icon>
@@ -131,7 +135,7 @@
           <template #default="{ row }">
             <span v-if="row.execution_type === 'parameterized'">[参数化]</span>
             <span v-else-if="row.execution_type === 'suite'">[套件]</span>
-            {{ row.name }}
+            {{ removeTimestamp(row.name) }}
           </template>
         </el-table-column>
         <el-table-column label="所属项目" width="150">
@@ -445,7 +449,7 @@ import { getExecutions, getExecution, deleteExecution, batchDeleteExecutions } f
 const loading = ref(false)
 const searchQuery = ref('')
 const statusFilter = ref('')
-const showAll = ref(false) // 是否显示所有记录（包括子用例）
+const typeFilter = ref('') // 执行类型筛选（suite/testcase/parameterized）
 const executions = ref([])
 const total = ref(0)
 const detailDialogVisible = ref(false)
@@ -467,33 +471,26 @@ const stats = ref({
   passRate: 0
 })
 
-const filteredExecutions = computed(() => {
-  let filtered = executions.value
-
-  // 状态过滤
-  if (statusFilter.value) {
-    filtered = filtered.filter((e) => e.status === statusFilter.value)
-  }
-
-  // 搜索过滤
-  if (searchQuery.value) {
-    const query = searchQuery.value.toLowerCase()
-    filtered = filtered.filter((e) =>
-      e.name.toLowerCase().includes(query)
-    )
-  }
-
-  return filtered
-})
-
 const loadExecutions = async () => {
   loading.value = true
   try {
-    const response = await getExecutions({
+    const params = {
       page: pagination.value.page,
-      page_size: pagination.value.pageSize,
-      show_all: showAll.value
-    })
+      page_size: pagination.value.pageSize
+    }
+    
+    // 添加筛选参数
+    if (typeFilter.value) {
+      params.type = typeFilter.value
+    }
+    if (statusFilter.value) {
+      params.status = statusFilter.value
+    }
+    if (searchQuery.value) {
+      params.search = searchQuery.value
+    }
+    
+    const response = await getExecutions(params)
     
     if (response.results) {
       executions.value = response.results
@@ -519,6 +516,12 @@ const calculateStats = () => {
   const passRate = total > 0 ? Math.round((passed / total) * 100) : 0
 
   stats.value = { total, passed, failed, passRate }
+}
+
+const handleFilterChange = () => {
+  // 筛选条件改变时，重置到第一页并重新加载
+  pagination.value.page = 1
+  loadExecutions()
 }
 
 const handleView = async (row) => {
@@ -584,12 +587,6 @@ const handleDialogBeforeClose = (done) => {
     parentSuiteExecutionId.value = null
     done()
   }
-}
-
-const handleShowAllChange = () => {
-  // 切换显示模式时重新加载数据
-  pagination.value.page = 1
-  loadExecutions()
 }
 
 const handleSizeChange = (size) => {
@@ -740,6 +737,12 @@ const formatDate = (dateString) => {
   const minutes = String(date.getMinutes()).padStart(2, '0')
   const seconds = String(date.getSeconds()).padStart(2, '0')
   return `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`
+}
+
+const removeTimestamp = (name) => {
+  if (!name) return '-'
+  // 去掉执行名称后的时间戳部分（格式：" - YYYY-MM-DD HH:MM:SS"）
+  return name.replace(/\s*-\s*\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}\s*$/, '')
 }
 
 onMounted(() => {

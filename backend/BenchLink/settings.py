@@ -40,6 +40,7 @@ INSTALLED_APPS = [
     'apps.testsuites',
     'apps.executions',
     'apps.scheduler',
+    'apps.notifications',
 ]
 
 MIDDLEWARE = [
