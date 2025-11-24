@@ -24,3 +24,4 @@ class NotificationChannelSerializer(serializers.ModelSerializer):
 
 
 
+

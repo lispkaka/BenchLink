@@ -47,6 +47,11 @@ dist-ssr/
 logs/
 *.log
 
+# Locust Performance Testing
+backend/logs/locust/
+locustfile_*.py
+result_*/
+
 # Coverage
 htmlcov/
 .coverage
@@ -55,6 +60,14 @@ coverage.xml
 
 # Docker
 *.pid
+
+# Temporary files
+*.tmp
+*.bak
+*.swp
+debug_*.js
+debug_*.html
+check_*.py
 
 
 
