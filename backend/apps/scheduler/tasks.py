@@ -36,12 +36,15 @@ def execute_scheduled_task(task_id):
         
         # 创建套件执行记录
         suite_execution = Execution.objects.create(
-            name=f"[定时任务] {testsuite.name} - {timezone.now().strftime('%Y-%m-%d %H:%M:%S')}",
+            # 定时任务父级执行记录，名称固定前缀，避免列表出现多条
+            name=f"[定时任务] {testsuite.name}",
             project=testsuite.project,
             testsuite=testsuite,
             executor=None,
             status='running',
-            start_time=timezone.now()
+            start_time=timezone.now(),
+            execution_type='suite',
+            parent=None
         )
         
         # 执行测试套件（复用TestSuiteViewSet的逻辑）
@@ -67,7 +70,9 @@ def execute_scheduled_task(task_id):
                 testcase=testcase,
                 executor=None,
                 status='running',
-                start_time=tz.now()
+                start_time=tz.now(),
+                execution_type='suite',
+                parent=suite_execution  # 绑定父级，前端只展示父记录
             )
             
             try:

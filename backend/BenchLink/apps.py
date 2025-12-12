@@ -1,4 +1,6 @@
 from django.apps import AppConfig
+import os
+from django.conf import settings
 
 
 class BenchLinkConfig(AppConfig):
@@ -12,7 +14,11 @@ class BenchLinkConfig(AppConfig):
         import sys
         if 'migrate' in sys.argv or 'makemigrations' in sys.argv:
             return
-        
+
+        # 在开发模式下，Django runserver 会启动两个进程（自动重载），防止调度器被重复启动导致任务重复执行
+        if settings.DEBUG and os.environ.get('RUN_MAIN') != 'true':
+            return
+
         try:
             from apps.scheduler.tasks import start_scheduler
             start_scheduler()

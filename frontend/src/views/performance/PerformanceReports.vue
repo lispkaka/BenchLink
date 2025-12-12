@@ -193,7 +193,8 @@ const taskIdFromRoute = computed(() => route.query.task_id)
 const filteredReports = computed(() => {
   let filtered = reports.value
   if (taskFilter.value) {
-    filtered = filtered.filter(report => report.task_id === taskFilter.value)
+    const selectedId = Number(taskFilter.value)
+    filtered = filtered.filter(report => Number(report.task_id) === selectedId)
   }
   return filtered
 })

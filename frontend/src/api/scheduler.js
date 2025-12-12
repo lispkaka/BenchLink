@@ -9,11 +9,26 @@ export const getSchedule = (id) => {
 }
 
 export const createSchedule = (data) => {
-  return api.post('/scheduler/schedules/', data)
+  const payload = {
+    ...data,
+    // 后端要求的写入字段
+    project_id: data.project || data.project_id,
+    testsuite_id: data.testsuite || data.testsuite_id
+  }
+  delete payload.project
+  delete payload.testsuite
+  return api.post('/scheduler/schedules/', payload)
 }
 
 export const updateSchedule = (id, data) => {
-  return api.patch(`/scheduler/schedules/${id}/`, data)
+  const payload = {
+    ...data,
+    project_id: data.project || data.project_id,
+    testsuite_id: data.testsuite || data.testsuite_id
+  }
+  delete payload.project
+  delete payload.testsuite
+  return api.patch(`/scheduler/schedules/${id}/`, payload)
 }
 
 export const deleteSchedule = (id) => {
