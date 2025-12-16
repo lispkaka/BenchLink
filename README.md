@@ -427,13 +427,6 @@ MIT License
 
 ---
 
-## 📞 联系方式
-
-- **GitHub**: [https://github.com/lispkaka/BenchLink](https://github.com/lispkaka/BenchLink)
-- **Gitee**: [https://gitee.com/yongens/bench-link](https://gitee.com/yongens/bench-link)
-
----
-
 <div align="center">
 
 **如果这个项目对你有帮助，请给个 ⭐ Star！**
