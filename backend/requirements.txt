@@ -16,4 +16,5 @@ cryptography==41.0.7
 APScheduler==3.10.4
 locust>=2.17.0
 PyYAML>=6.0
+drf-spectacular==0.27.2
 

@@ -6,6 +6,7 @@ from django.urls import path, include
 from django.conf import settings
 from django.conf.urls.static import static
 from django.http import JsonResponse
+from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView
 
 def api_root(request):
     """API 根路径，返回可用的 API 端点"""
@@ -39,6 +40,9 @@ urlpatterns = [
     path('api/executions/', include('apps.executions.urls')),
     path('api/scheduler/', include('apps.scheduler.urls')),
     path('api/notifications/', include('apps.notifications.urls')),
+    # OpenAPI schema & Swagger UI
+    path('api/schema/', SpectacularAPIView.as_view(), name='schema'),
+    path('api/docs/swagger/', SpectacularSwaggerView.as_view(url_name='schema'), name='swagger-ui'),
 ]
 
 if settings.DEBUG:
